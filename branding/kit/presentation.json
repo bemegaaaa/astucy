@@ -1,0 +1,32 @@
+{
+  "brand": "Astucy",
+  "tagline": "Abre primeiro. Roda afiado.",
+  "brief": "Launcher de Minecraft: Java Edition focado em performance (Fabric + Sodium-family), HUD de PvP e cosméticos gratuitos client-sided. Uso livre pelo usuário; sem anúncios no caminho de launch; conta autenticada e token nunca em log.",
+  "adjectives": ["rapido", "afiado", "direto", "moderno"],
+  "criteria": "Sucesso: distinto de marcas genéricas de terceiros, legível a 16px, funciona em 1 cor, e tem rotação implícita (a marca PODE girar no boot do launcher).",
+  "industry": "software",
+  "nav": ["Download", "Mods", "Segurança"],
+  "brand_color": "#00E5A0",
+  "greyscale": true,
+  "designer": "OpenCode — F1",
+  "round": 3,
+  "concepts": [
+    {
+      "name": "Íris (obturador)",
+      "symbol": "final-symbol.svg",
+      "lockup": "lockup-horizontal.svg",
+      "idea": "Três pétalas grossas em rotação: o client abre como um diafragma.",
+      "rationale": [
+        "Símbolo geométrico próprio (arcos exatos, fendas a 120°) — sem letra, sem orbe, sem pena",
+        "Rotação implícita ancora o motion identity do launcher",
+        "Sobra em 16px: pétalas ficam sólidas (corte favicon já preparado)"
+      ]
+    }
+  ],
+  "recommendation": "Íris — conceito aprovado; documento final da Fase 1.",
+  "next_steps": [
+    "Aplicar a marca no launcher Tauri (título, ícone de app, splash com rotação da Íris)",
+    "Spec de motion: rotação 120° a cada fase do launch",
+    "Guia completo (paleta, espaçamento, usos proibidos)"
+  ]
+}

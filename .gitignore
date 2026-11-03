@@ -1,0 +1,21 @@
+# ---- Rust / launcher (nativo e webview) ----
+launcher/src-tauri/target/
+launcher/node_modules/
+launcher/dist/
+launcher/src-tauri/gen/
+
+# ---- Gradle (mod astucyc) ----
+mod/astucyc/build/
+mod/astucyc/.gradle/
+mod/astucyc/run/
+!mod/astucyc/gradle/wrapper/
+mod/astucyc/gradle/wrapper/*.jar.sha1
+
+# ---- tooling local (distribuição do gradle) ----
+.tooling/
+
+# ---- lixo geral ----
+*.log
+Thumbs.db
+.DS_Store
+*.png.tmp

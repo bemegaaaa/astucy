@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><title>Conceito B - Raposa Negativa</title>
+  <!-- Raposa Negativa v2: selo solido, raposa recortada no negativo com olhos
+       como ilhas pretas e pelo de bochecha — o astuto escondido na forma. -->
+  <path fill="#000000" fill-rule="evenodd" d="M 56 24 L 200 24 A 32 32 0 0 1 232 56 L 232 200 A 32 32 0 0 1 200 232 L 56 232 A 32 32 0 0 1 24 200 L 24 56 A 32 32 0 0 1 56 24 Z
+    M 58 50 L 112 114 L 128 104 L 144 114 L 198 50 L 188 116 L 196 132 L 180 142 L 186 162 L 168 172 L 156 192 L 128 214 L 100 192 L 88 172 L 70 162 L 76 142 L 60 132 L 68 116 Z
+    M 88 134 L 112 128 L 116 142 L 92 148 Z
+    M 168 134 L 144 128 L 140 142 L 164 148 Z"/>
+</svg>

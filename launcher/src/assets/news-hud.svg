@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#10151b"/>
+      <stop offset="1" stop-color="#1a2129"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="360" fill="url(#bg)"/>
+  <!-- teclado estilizado -->
+  <g>
+    <rect x="150" y="70" width="72" height="72" rx="12" fill="#ffffff" opacity="0.14"/>
+    <rect x="72" y="152" width="72" height="72" rx="12" fill="#ffffff" opacity="0.14"/>
+    <rect x="150" y="152" width="72" height="72" rx="12" fill="#ffffff" opacity="0.14"/>
+    <rect x="228" y="152" width="72" height="72" rx="12" fill="#00E5A0" opacity="0.85"/>
+    <rect x="72" y="234" width="148" height="42" rx="12" fill="#ffffff" opacity="0.10"/>
+    <rect x="232" y="234" width="80" height="42" rx="12" fill="#ffffff" opacity="0.10"/>
+  </g>
+  <!-- HUD boxes -->
+  <g opacity="0.55">
+    <rect x="392" y="86" width="176" height="44" rx="10" fill="none" stroke="#ffffff" stroke-width="1.5" opacity="0.6"/>
+    <rect x="392" y="146" width="120" height="10" rx="5" fill="#ffffff" opacity="0.5"/>
+    <rect x="392" y="166" width="84" height="10" rx="5" fill="#00E5A0"/>
+    <rect x="392" y="206" width="176" height="44" rx="10" fill="none" stroke="#ffffff" stroke-width="1.5" opacity="0.35"/>
+    <rect x="392" y="222" width="60" height="12" rx="6" fill="#ffffff" opacity="0.5"/>
+    <rect x="470" y="222" width="34" height="12" rx="6" fill="#ffffff" opacity="0.3"/>
+    <rect x="516" y="222" width="34" height="12" rx="6" fill="#00E5A0" opacity="0.8"/>
+  </g>
+</svg>

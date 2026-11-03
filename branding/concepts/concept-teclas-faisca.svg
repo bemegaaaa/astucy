@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <rect width="256" height="256" fill="#ffffff"/>
+  <title>Astucy - faisca de teclas</title>
+  <g transform="translate(204 50) rotate(0)"><path fill="#000000" d="M-22 -42 H22 A20 20 0 0 1 42 -22 V22 A20 20 0 0 1 22 42 H-22 A20 20 0 0 1 -42 22 V-22 A20 20 0 0 1 -22 -42 Z"/></g>
+  <g transform="translate(114 142) rotate(45)"><path fill="#000000" d="M-14 -26 H14 A12 12 0 0 1 26 -14 V14 A12 12 0 0 1 14 26 H-14 A12 12 0 0 1 -26 14 V-14 A12 12 0 0 1 -14 -26 Z"/></g>
+  <g transform="translate(44 212) rotate(0)"><path fill="#000000" d="M-10 -20 H10 A10 10 0 0 1 20 -10 V10 A10 10 0 0 1 10 20 H-10 A10 10 0 0 1 -20 10 V-10 A10 10 0 0 1 -10 -20 Z"/></g>
+</svg>

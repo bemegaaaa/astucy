@@ -1,0 +1,28 @@
+{
+  "required": true,
+  "minVersion": "0.8.7",
+  "package": "com.astucy.client.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "KeyboardInputMixin",
+    "PlayerHealthMixin",
+    "ViewmodelMixin",
+    "LoadingOverlayMixin",
+    "LevelLoadingScreenMixin",
+    "TitleScreenMixin",
+    "PauseScreenMixin",
+    "LogoRendererMixin",
+    "SplashRendererMixin",
+    "ScreenshotGrabMixin",
+    "ButtonStyleMixin",
+    "HudEffectsMixin",
+    "ChatComponentMixin",
+    "ChatScreenSearchMixin",
+    "ChatInputCharsMixin",
+    "CameraFovMixin",
+    "ScreenInvoker"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

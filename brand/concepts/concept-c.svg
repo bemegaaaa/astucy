@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><title>Conceito C - A Raposa</title>
+  <!-- A Raposa: letterform A cujo topo se abre em duas orelhas — a letra e o
+       animal no mesmo gesto. As frestas seguem como detalhe proprio. -->
+  <g fill="#000000">
+    <path d="M 104 24 L 138 48 L 82 228 L 24 228 Z"/>
+    <path d="M 152 24 L 118 48 L 174 228 L 232 228 Z"/>
+    <rect x="64" y="152" width="128" height="13"/>
+    <rect x="52" y="186" width="152" height="13"/>
+  </g>
+</svg>

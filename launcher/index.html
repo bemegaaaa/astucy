@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Astucy Launcher</title>
+    <script>
+      // tema antes do primeiro paint (sem flash branco/preto)
+      (function () {
+        try {
+          var choice = localStorage.getItem("astucy.theme") || "system";
+          var dark =
+            choice === "dark" ||
+            (choice === "system" &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.dataset.theme = dark ? "dark" : "light";
+          document.documentElement.dataset.themeChoice = choice;
+        } catch (e) {}
+      })();
+    </script>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <!-- ---------- barra de título (decorations:false) ---------- -->
+    <header id="titlebar" data-tauri-drag-region>
+      <div class="brand" data-tauri-drag-region>
+        <span class="brand-mark" aria-hidden="true">
+          <img src="/src/assets/astucy-symbol.svg" alt="" />
+        </span>
+        <span id="brand-lockup" class="brand-lockup"></span>
+        <span class="brand-badge" id="app-version">v0.1.0</span>
+      </div>
+
+      <div class="titlebar-right">
+        <div class="theme-switch" id="theme-switch" role="group" aria-label="Tema da interface">
+          <span class="theme-thumb" aria-hidden="true"></span>
+          <button type="button" data-theme-set="light" title="Tema claro" aria-label="Tema claro">
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <circle cx="10" cy="10" r="3.6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+              <path d="M10 2.2v2M10 15.8v2M2.2 10h2M15.8 10h2M4.5 4.5l1.4 1.4M14.1 14.1l1.4 1.4M15.5 4.5l-1.4 1.4M5.9 14.1l-1.4 1.4"
+                    stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <button type="button" data-theme-set="dark" title="Tema escuro" aria-label="Tema escuro">
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M16.2 12.3A6.8 6.8 0 0 1 7.7 3.8a6.8 6.8 0 1 0 8.5 8.5Z"
+                    fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <button type="button" data-theme-set="system" title="Seguir o sistema" aria-label="Seguir o sistema">
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <rect x="2.5" y="3.5" width="15" height="10" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+              <path d="M7 17h6M10 13.8V17" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="window-controls">
+          <button class="wc" id="wc-minimize" title="Minimizar" aria-label="Minimizar">
+            <svg viewBox="0 0 12 12"><path d="M1 6.5h10" stroke="currentColor" stroke-width="1"/></svg>
+          </button>
+          <button class="wc" id="wc-maximize" title="Maximizar / Restaurar" aria-label="Maximizar">
+            <svg viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+          </button>
+          <button class="wc wc-close" id="wc-close" title="Fechar" aria-label="Fechar">
+            <svg viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1"/></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <div id="shell">
+      <aside id="nav" hidden>
+        <span class="nav-label">Menu</span>
+        <button class="nav-item is-current" data-pane="home">
+          <svg viewBox="0 0 20 20"><path d="M3 10.5 10 4l7 6.5M5 9.5V16h4v-4h2v4h4V9.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+          <span>Início</span>
+        </button>
+        <button class="nav-item" data-pane="versions">
+          <svg viewBox="0 0 20 20"><rect x="3" y="3" width="14" height="14" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 7.5h14M10 3v14" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+          <span>Versões</span>
+        </button>
+        <button class="nav-item" data-pane="mods">
+          <svg viewBox="0 0 20 20"><path d="M7 3h6v4h4v6h-4v4H7v-4H3V7h4z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+          <span>Mods</span>
+        </button>
+        <button class="nav-item" data-pane="settings">
+          <svg viewBox="0 0 20 20"><path d="M3 6h9M15 6h2M3 14h2M8 14h9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="13" cy="6" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="6" cy="14" r="1.8" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+          <span>Ajustes</span>
+        </button>
+
+        <span class="nav-spacer"></span>
+
+        <!-- cartão de conta fixo na lateral (visível em todas as abas) -->
+        <div class="side-account" id="side-account">
+          <span class="side-avatar" id="side-avatar">
+            <img id="side-avatar-img" src="/src/assets/astucy-symbol.svg" alt="" />
+          </span>
+          <span class="side-text">
+            <span class="side-name" id="side-name">Jogador</span>
+            <span class="side-mode" id="side-mode">offline</span>
+          </span>
+          <span class="side-dot" id="side-dot" aria-hidden="true"></span>
+        </div>
+
+        <div class="side-ram" id="side-ram">
+          <div class="side-ram-head">
+            <span>Memória livre</span>
+            <b id="side-ram-val">—</b>
+          </div>
+          <div class="side-ram-bar"><span id="side-ram-fill"></span></div>
+        </div>
+
+        <span class="nav-foot">Astucy</span>
+      </aside>
+
+      <main id="content">
+        <!-- ---------- splash ---------- -->
+        <section id="splash" class="pane">
+          <div id="splash-mark" class="splash-mark" aria-hidden="true">
+            <span class="splash-iris">
+              <img src="/src/assets/astucy-symbol.svg" alt="" />
+            </span>
+            <svg class="splash-ring" viewBox="0 0 216 216">
+              <circle class="ring-track" cx="108" cy="108" r="103" />
+              <circle class="ring-fill" id="ring-fill" cx="108" cy="108" r="103" />
+            </svg>
+          </div>
+
+          <span id="splash-lockup" class="splash-lockup"></span>
+          <p class="splash-tag">Abre primeiro. Roda afiado.</p>
+
+          <ul id="splash-steps" class="splash-steps">
+            <li data-step>Preparando o ambiente…</li>
+            <li data-step>Conferindo versões e mods…</li>
+            <li data-step>Abrindo o launcher</li>
+          </ul>
+        </section>
+
+        <!-- ---------- início ---------- -->
+        <section id="home" class="pane pane-home" hidden>
+          <div class="home-top">
+            <div class="greet">
+              <span class="avatar" id="greet-avatar">
+                <img src="/src/assets/astucy-symbol.svg" alt="" />
+              </span>
+              <div class="greet-text">
+                <span class="greet-hi" id="greet-hi">Bem-vindo de volta</span>
+                <span class="greet-name" id="greet-name">Jogador</span>
+              </div>
+            </div>
+            <div class="home-pills">
+              <span class="pill pill-dot" id="pill-mode">Offline</span>
+              <span class="pill" id="pill-version">—</span>
+            </div>
+          </div>
+
+          <div class="home-grid">
+            <article class="hero">
+              <span class="hero-glow" aria-hidden="true"></span>
+
+              <div class="hero-top">
+                <span class="hero-badge">Minecraft: Java Edition</span>
+                <span class="hero-chip" id="hero-tag">—</span>
+              </div>
+
+              <span id="hero-lockup" class="hero-lockup"></span>
+              <p class="hero-sub">
+                <span class="dot-live" aria-hidden="true"></span>
+                <span id="hero-mode">modo offline</span>
+              </p>
+
+              <!-- identidade: conta Microsoft ou nick offline, no mesmo controle -->
+              <div class="identity" id="identity">
+                <button class="identity-btn" id="identity-btn" aria-haspopup="menu" aria-expanded="false">
+                  <span class="identity-avatar" id="identity-avatar">
+                    <img id="identity-img" src="/src/assets/astucy-symbol.svg" alt="" />
+                  </span>
+                  <span class="identity-text">
+                    <span class="identity-name" id="identity-name">Jogador</span>
+                    <span class="identity-sub" id="identity-sub">modo offline</span>
+                  </span>
+                  <svg class="identity-chev" viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M4 6.5 8 10.5 12 6.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                  </svg>
+                </button>
+
+                <div class="identity-menu" id="identity-menu" hidden>
+                  <div class="identity-list" id="identity-list"></div>
+                  <div class="identity-nick">
+                    <label for="nick-input">Nick offline</label>
+                    <input id="nick-input" type="text" maxlength="16" placeholder="Steve"
+                           spellcheck="false" autocomplete="off" />
+                  </div>
+                  <button class="identity-action" id="btn-signin">
+                    <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="2.5" width="6" height="6" rx="1" fill="currentColor"/><rect x="11.5" y="2.5" width="6" height="6" rx="1" fill="currentColor"/><rect x="2.5" y="11.5" width="6" height="6" rx="1" fill="currentColor"/><rect x="11.5" y="11.5" width="6" height="6" rx="1" fill="currentColor"/></svg>
+                    Entrar com Microsoft
+                  </button>
+                </div>
+              </div>
+
+              <div class="signin-card" id="signin-card" hidden>
+                <div class="signin-head">
+                  <span class="signin-title">Entrar com Microsoft</span>
+                  <button class="btn-ghost btn-mini" id="btn-cancel-signin">Cancelar</button>
+                </div>
+                <p class="set-note" id="acct-note">Abrindo o site da Microsoft…</p>
+                <button class="signin-code" id="acct-code-value" title="Clique para copiar">········</button>
+                <div class="signin-actions">
+                  <button class="btn-ghost btn-mini" id="btn-open-link">Abrir microsoft.com/link</button>
+                  <span class="signin-hint">Cole o código no site e confirme</span>
+                </div>
+              </div>
+
+              <div class="hero-actions">
+                <button class="btn-jogar" id="btn-play" disabled>
+                  <span class="btn-label">Jogar</span>
+                  <span class="btn-sub" id="play-sub">escolha um nick</span>
+                </button>
+
+                <div class="hero-pick">
+                  <span class="hero-pick-label">Versão</span>
+                  <select id="version-select" class="version-select" aria-label="Versão do jogo"></select>
+                </div>
+              </div>
+
+              <p class="hero-note" id="hero-status">
+                Sem conta Microsoft — você joga offline com o nick escolhido no seletor acima.
+              </p>
+
+              <img class="hero-iris" src="/src/assets/astucy-symbol.svg" alt="" aria-hidden="true" />
+            </article>
+
+            <aside class="home-rail">
+              <section class="card rail-card">
+                <header class="card-head">
+                  <h3>Sistema</h3>
+                  <span class="card-hint" id="sys-ram-label">—</span>
+                </header>
+                <div class="ram-bar"><span id="sys-ram-fill"></span></div>
+                <div class="ram-meta">
+                  <span id="sys-ram-text">—</span>
+                  <span id="sys-ram-total">—</span>
+                </div>
+                <div class="rail-sep"></div>
+                <div class="rail-line">
+                  <span>Java disponível</span>
+                  <div class="chip-row" id="sys-java"><span class="chip">—</span></div>
+                </div>
+              </section>
+
+              <section class="card rail-card">
+                <header class="card-head"><h3>Atalhos</h3></header>
+                <div class="quick-list">
+                  <button class="quick" data-folder="minecraft">
+                    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6.2A1.7 1.7 0 0 1 4.7 4.5h3.1l1.6 1.8h6a1.7 1.7 0 0 1 1.6 1.7v6.3A1.7 1.7 0 0 1 15.3 16H4.7A1.7 1.7 0 0 1 3 14.3Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+                    <span><b>Pasta do jogo</b><i>.minecraft</i></span>
+                  </button>
+                  <button class="quick" data-folder="logs">
+                    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 3.5h7l3 3v10H5z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M7.5 9h5M7.5 12h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                    <span><b>Logs</b><i>última execução</i></span>
+                  </button>
+                  <button class="quick" data-folder="mods">
+                    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 3h6v4h4v6h-4v4H7v-4H3V7h4z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+                    <span><b>Mods</b><i>perfil Astucy</i></span>
+                  </button>
+                </div>
+              </section>
+            </aside>
+          </div>
+
+          <div class="stat-strip">
+            <div class="stat">
+              <span class="stat-k">Versão</span>
+              <b id="stat-version">—</b>
+            </div>
+            <div class="stat">
+              <span class="stat-k">Mods ativos</span>
+              <b id="stat-mods">—</b>
+            </div>
+            <div class="stat">
+              <span class="stat-k">Memória</span>
+              <b id="stat-ram">—</b>
+            </div>
+            <div class="stat">
+              <span class="stat-k">Java</span>
+              <b id="stat-java">—</b>
+            </div>
+          </div>
+        </section>
+
+        <!-- ---------- versões ---------- -->
+        <section id="versions" class="pane pane-page" hidden>
+          <header class="page-head">
+            <div>
+              <h2>Versões</h2>
+              <p class="page-sub">
+                Catálogo oficial da Mojang, de 1.7.10 até a mais recente, agrupado por família
+                (26.x, 1.21, 1.20…). Só versões estáveis.
+              </p>
+            </div>
+            <button class="btn-soft" id="btn-refresh-catalog">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 3.5V7h-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Atualizar
+            </button>
+          </header>
+
+          <div class="toolbar">
+            <label class="search">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              <input id="ver-search" type="search" placeholder="Filtrar — 1.21, 1.7.10, 26w…"
+                     spellcheck="false" autocomplete="off" />
+            </label>
+
+            <div class="seg" id="ver-filter" role="tablist" aria-label="Filtro de versões">
+              <button type="button" data-filter="all" class="is-on" role="tab" aria-selected="true">Todas</button>
+              <button type="button" data-filter="client" role="tab" aria-selected="false">26.x</button>
+              <button type="button" data-filter="legacy" role="tab" aria-selected="false">1.x</button>
+              <button type="button" data-filter="installed" role="tab" aria-selected="false">Instaladas</button>
+            </div>
+          </div>
+
+          <div id="versions-grid" class="versions-grid">
+            <p class="list-note">Lendo o catálogo da Mojang…</p>
+          </div>
+          <p class="list-foot" id="versions-foot"></p>
+        </section>
+
+        <!-- ---------- mods ---------- -->
+        <section id="mods" class="pane pane-page" hidden>
+          <header class="page-head">
+            <div>
+              <h2>Mods</h2>
+              <p class="page-sub">
+                Fabric <span id="mods-version">—</span> · baixa direto do Modrinth, já com as dependências obrigatórias.
+              </p>
+            </div>
+            <button class="btn-soft" id="btn-open-mods">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6.2A1.7 1.7 0 0 1 4.7 4.5h3.1l1.6 1.8h6a1.7 1.7 0 0 1 1.6 1.7v6.3A1.7 1.7 0 0 1 15.3 16H4.7A1.7 1.7 0 0 1 3 14.3Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+              Abrir pasta
+            </button>
+          </header>
+
+          <div class="mod-search">
+            <svg class="mod-search-icon" viewBox="0 0 20 20" aria-hidden="true">
+              <circle cx="9" cy="9" r="5.5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <input id="mr-query" type="text" placeholder="Buscar no Modrinth — sodium, zoom, motion blur…"
+                   spellcheck="false" autocomplete="off" />
+            <button class="btn-primary btn-mini" id="mr-search">Buscar</button>
+          </div>
+
+          <div id="mr-results" class="mod-results"></div>
+
+          <div class="mod-group">
+            <div class="mod-group-head">
+              <h3>Instalados <span class="badge-soft" id="mods-count">0</span></h3>
+              <div class="mod-toolbar">
+                <button class="btn-ghost btn-mini" id="btn-refresh-mods">Atualizar</button>
+              </div>
+            </div>
+            <div id="installed-mods" class="mod-rows">
+              <p class="set-note">Lendo a pasta de mods…</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ---------- ajustes ---------- -->
+        <section id="settings" class="pane pane-page" hidden>
+          <header class="page-head">
+            <div>
+              <h2>Ajustes</h2>
+              <p class="page-sub">Salvos automaticamente e aplicados na próxima vez que você abrir o jogo.</p>
+            </div>
+          </header>
+
+          <div class="set-grid">
+            <div class="set-col">
+              <section class="set-group">
+                <div class="set-head">
+                  <span class="set-name">Memória do jogo</span>
+                  <span class="set-val" id="ram-val">2560 MB</span>
+                </div>
+                <input type="range" id="ram-range" min="1024" max="8192" step="256" value="2560" />
+                <div class="set-scale"><span>1 GB</span><span id="ram-hint">recomendado para 8 GB</span><span id="ram-max">8 GB</span></div>
+                <p class="set-note">O heap cresce sob demanda: abre rápido e ocupa menos RAM no menu.</p>
+              </section>
+
+              <section class="set-group">
+                <div class="set-head"><span class="set-name">Resolução da janela</span></div>
+                <div class="preset-row" id="res-presets">
+                  <button type="button" class="preset" data-w="1280" data-h="720">1280 × 720</button>
+                  <button type="button" class="preset" data-w="1600" data-h="900">1600 × 900</button>
+                  <button type="button" class="preset" data-w="1920" data-h="1080">1920 × 1080</button>
+                </div>
+                <div class="res-row">
+                  <input type="number" id="res-w" min="640" max="7680" value="1280" aria-label="Largura" />
+                  <span class="res-x">×</span>
+                  <input type="number" id="res-h" min="480" max="4320" value="720" aria-label="Altura" />
+                </div>
+              </section>
+
+              <details class="set-group set-advanced">
+                <summary><span class="set-name">Flags de JVM</span><span class="set-val">avançado</span></summary>
+                <textarea id="jvm-flags" rows="3" spellcheck="false">-XX:+UseG1GC -XX:MaxGCPauseMillis=60 -XX:+DisableExplicitGC</textarea>
+                <p class="set-note">Aplicadas depois das flags do Astucy — o que você escrever aqui vence.</p>
+              </details>
+            </div>
+
+            <div class="set-col">
+              <section class="set-group">
+                <div class="set-head"><span class="set-name">Aparência</span></div>
+                <div class="theme-cards" id="theme-cards">
+                  <button type="button" class="theme-card" data-theme-choice="light">
+                    <span class="tc-preview tc-light"></span>
+                    <span class="tc-name">Claro</span>
+                  </button>
+                  <button type="button" class="theme-card" data-theme-choice="dark">
+                    <span class="tc-preview tc-dark"></span>
+                    <span class="tc-name">Escuro</span>
+                  </button>
+                  <button type="button" class="theme-card" data-theme-choice="system">
+                    <span class="tc-preview tc-system"></span>
+                    <span class="tc-name">Sistema</span>
+                  </button>
+                </div>
+              </section>
+
+              <section class="set-group">
+                <div class="set-head"><span class="set-name">Ao iniciar o jogo</span></div>
+                <label class="set-switch">
+                  <span class="ss-text">
+                    <b>Fechar o launcher ao jogar</b>
+                    <small>Libera ~200 MB de RAM e a GPU para o Minecraft. Reabra pelo atalho quando quiser.</small>
+                  </span>
+                  <input type="checkbox" class="mod-toggle" id="close-on-play" checked />
+                  <span class="switch" aria-hidden="true"></span>
+                </label>
+              </section>
+
+              <section class="set-group">
+                <div class="set-head"><span class="set-name">Pastas</span></div>
+                <div class="folder-grid">
+                  <button class="btn-ghost btn-mini" data-folder="minecraft">Pasta do jogo</button>
+                  <button class="btn-ghost btn-mini" data-folder="logs">Logs</button>
+                  <button class="btn-ghost btn-mini" data-folder="mods">Mods</button>
+                  <button class="btn-ghost btn-mini" data-folder="versions">Versões</button>
+                </div>
+              </section>
+
+              <details class="set-group set-advanced">
+                <summary><span class="set-name">Client ID do Azure</span><span class="set-val">opcional</span></summary>
+                <input id="client-id" class="text-input" type="text"
+                       placeholder="00000000-0000-0000-0000-000000000000" spellcheck="false" autocomplete="off" />
+                <p class="set-note">
+                  O Astucy já vem com o app dele — só preencha para usar o seu
+                  (<strong>Allow public client flows: Yes</strong>, sem secret).
+                </p>
+                <button class="btn-ghost btn-mini" id="btn-save-client">Salvar client ID</button>
+              </details>
+
+              <button class="btn-ghost btn-danger" id="btn-restore">Restaurar padrão</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- janela de login: entra direto com a conta Microsoft -->
+    <div class="login-backdrop" id="login-modal" hidden>
+      <div class="login-card">
+        <span class="login-glow" aria-hidden="true"></span>
+        <div class="login-head">
+          <span class="login-mark"><img src="/src/assets/astucy-symbol.svg" alt="" /></span>
+          <div class="login-head-text">
+            <h2>Entrar</h2>
+            <p>Use sua conta Microsoft. A página oficial abre numa janela aqui dentro.</p>
+          </div>
+          <button class="login-x" id="login-close" aria-label="Fechar">×</button>
+        </div>
+
+        <button class="login-ms" id="login-ms">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="2.5" width="6" height="6" rx="1" fill="currentColor"/><rect x="11.5" y="2.5" width="6" height="6" rx="1" fill="currentColor"/><rect x="2.5" y="11.5" width="6" height="6" rx="1" fill="currentColor"/><rect x="11.5" y="11.5" width="6" height="6" rx="1" fill="currentColor"/></svg>
+          Entrar com Microsoft
+        </button>
+        <button class="login-code" id="login-code" hidden>usar código em vez da janela</button>
+
+        <p class="login-note" id="login-note"></p>
+        <button class="login-skip" id="login-skip">Continuar offline</button>
+      </div>
+    </div>
+
+    <div class="toast-stack" id="toasts" aria-live="polite"></div>
+  </body>
+</html>
