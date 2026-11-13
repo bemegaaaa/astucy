@@ -7,17 +7,20 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractButton;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Botões no estilo do Astucy em todas as telas: vidro escuro, fio fino de luz
- * e hover neutro (sem barra verde — só clareamento no hover). Texto pequeno
- * em DM Sans 9px, igual ao resto da interface.
+ * Botões no estilo do Astucy em todas as telas: vidro escuro anti-aliased,
+ * micro-borda luminosa e hover interpolado suave.
  */
 @Mixin(AbstractButton.class)
 public abstract class ButtonStyleMixin {
+
+    @Unique
+    private float astucy$hover = 0f;
 
     @Inject(method = "extractWidgetRenderState", at = @At("HEAD"), cancellable = true)
     private void astucy$style(GuiGraphicsExtractor g, int mouseX, int mouseY, float partial, CallbackInfo ci) {
@@ -32,15 +35,24 @@ public abstract class ButtonStyleMixin {
         int x = self.getX();
         int y = self.getY();
         boolean hover = self.isHovered() && self.active;
+        float target = hover ? 1f : 0f;
+        astucy$hover += (target - astucy$hover) * 0.25f;
+        if (Math.abs(target - astucy$hover) < 0.01f) {
+            astucy$hover = target;
+        }
 
-        // botão chapado, canto quase reto (raio 4), só clareia no hover
-        Ui.rrect(g, x, y, w, h, hover ? 0xFF232529 : 0xFF191A1D, 4);
+        int bg = Ui.mix(0xD811151C, 0xEE1A222D, astucy$hover);
+        Ui.rrect(g, x, y + 1, w, h, 0x38000000, 6);
+        Ui.rrect(g, x, y, w, h, bg, 6);
+        if (astucy$hover > 0.02f) {
+            Ui.rframe(g, x, y, w, h, Ui.mix(0x0038C975, 0x6638C975, astucy$hover), 6);
+        }
 
-        Font f = AstucyFonts.ui8();
+        Font f = AstucyFonts.ui();
         String label = self.getMessage().getString();
-        int color = self.active ? 0xFFFFFFFF : 0x66FFFFFF;
+        int color = self.active ? Ui.mix(0xFFE4E8F0, 0xFFFFFFFF, astucy$hover) : 0x66FFFFFF;
         int lw = f.width(label);
-        int room = w - 10;
+        int room = w - 12;
         if (lw > room) {
             // rótulo longo: reduz a escala em vez de trocar de fonte
             float fit = Math.max(0.6f, room / (float) lw);

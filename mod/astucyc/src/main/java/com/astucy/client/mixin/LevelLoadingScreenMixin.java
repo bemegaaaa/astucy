@@ -1,7 +1,9 @@
 package com.astucy.client.mixin;
 
+import com.astucy.client.AstucyFonts;
+import com.astucy.client.ui.AstucyTextures;
+import com.astucy.client.ui.Skin;
 import com.astucy.client.ui.Ui;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.LevelLoadingScreen;
@@ -13,10 +15,9 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Carregamento de MUNDO (26.x moviu o overlay de mundo pra LevelLoadingScreen):
- * mesma marca da tela de abertura do client — fundo quase preto, wordmark,
- * barra de progresso do serviço de chunks. Desenha POR CIMA da tela vanilla;
- * a lógica de progresso/fim continua sendo a do jogo.
+ * Carregamento de MUNDO (LevelLoadingScreen):
+ * mesma identidade do Astucy com logo oficial girando, partículas orbitais e
+ * barra de progresso esmeralda.
  */
 @Mixin(LevelLoadingScreen.class)
 public abstract class LevelLoadingScreenMixin {
@@ -31,19 +32,25 @@ public abstract class LevelLoadingScreenMixin {
         int cx = gw / 2;
         int cy = gh / 2;
 
-        Ui.rect(g, 0, 0, gw, gh, 0xFC000000);
+        Ui.rect(g, 0, 0, gw, gh, 0xFF05070B);
+        float pulse = 0.85f + 0.15f * (float) Math.sin(now / 650.0);
+        Skin.glow(g, cx, cy - 28, Math.max(130, gw / 3), ((int) (0x26 * pulse) << 24) | 0x22C55E);
+        Skin.noise(g, 0, 0, gw, gh);
 
-        Font f = com.astucy.client.AstucyFonts.label();
+        // Logo oficial girando acima do wordmark
+        float spin = (now % 60000L) / 380f;
+        Skin.logoTravel(g, cx, cy - 58f, cx, cy - 58f, 1f, 38f, 38f, spin, 0xFFFFFFFF, 0xFF22C55E);
 
-        // wordmark em alta (cai pra letra-a-letra se a textura ainda não chegou)
-        int lw = com.astucy.client.ui.AstucyTextures.fitWidth(g);
-        int my = cy - 70;
+        Font f = AstucyFonts.label();
+
+        int lw = AstucyTextures.fitWidth(g);
+        int my = cy - 22;
         int lh;
         if (lw > 0) {
-            lh = com.astucy.client.ui.AstucyTextures.heightFor(lw);
-            com.astucy.client.ui.AstucyTextures.draw(g, cx, my, lw, 0xFFFFFFFF);
+            lh = AstucyTextures.heightFor(lw);
+            AstucyTextures.draw(g, cx, my, lw, 0xFFFFFFFF);
         } else {
-            var display = com.astucy.client.AstucyFonts.display();
+            var display = AstucyFonts.display();
             String mark = "ASTUCY";
             int total = 0;
             for (int i = 0; i < mark.length(); i++) {
@@ -60,37 +67,37 @@ public abstract class LevelLoadingScreenMixin {
             lh = 34;
         }
 
-        String sub = "C A R R E G A N D O   M U N D O";
+        String sub = "L O A D I N G   W O R L D";
         int sw = f.width(sub);
-        g.text(f, sub, cx - sw / 2, my + lh + 8, 0x8C99A2AD, false);
+        g.text(f, sub, cx - sw / 2, my + lh + 6, 0x9994A3B8, false);
 
-        // barra: progresso suavizado do vanilla (0 = indeterminado, com pulso)
         float prog = Mth.clamp(smoothedProgress, 0f, 1f);
-        int bw = Math.min(260, gw - 80);
+        int bw = Math.min(240, gw - 80);
         int bx = cx - bw / 2;
-        int by = cy + 8;
-        Ui.rect(g, bx, by, bw, 2, 0x33FFFFFF);
-        int fill;
+        int by = cy + 34;
+        Ui.rrect(g, bx, by, bw, 4, 0x26FFFFFF, 2);
         if (prog <= 0.001f) {
-            // indeterminado: pulso deslizante
-            int pw = 46;
-            int peak = (int) (now / 9L) % (bw + pw);
-            fill = 0;
-            int x0 = Math.max(bx, peak - pw);
-            int x1 = Math.min(bx + bw, peak);
+            int pw = 52;
+            int peak = (int) (now / 8L) % (bw + pw);
+            int x0 = Math.max(bx, bx + peak - pw);
+            int x1 = Math.min(bx + bw, bx + peak);
             if (x1 > x0) {
-                Ui.rect(g, x0, by, x1 - x0, 2, 0xFFFFFFFF);
+                Ui.rrect(g, x0, by, x1 - x0, 4, 0xFF22C55E, 2);
+                Skin.glow(g, x1, by + 2, 10, 0x6634D399);
             }
         } else {
-            fill = Math.max(0, Math.min(bw, Math.round(bw * prog)));
+            int fill = Math.max(0, Math.min(bw, Math.round(bw * prog)));
             if (fill > 0) {
-                Ui.rect(g, bx, by, fill, 2, 0xFFFFFFFF);
+                if (!Skin.boxGrad(g, bx, by, Math.max(4, fill), 4, 0xFF34D399, 0xFF22C55E, 2)) {
+                    Ui.rrect(g, bx, by, fill, 4, 0xFF22C55E, 2);
+                }
+                Skin.glow(g, bx + fill, by + 2, 10, 0x6634D399);
             }
         }
         String pct = Math.round(prog * 100f) + "%";
-        g.text(f, pct, cx - f.width(pct) / 2, by + 8, 0x66A9B2BC, false);
+        g.text(f, pct, cx - f.width(pct) / 2, by + 10, 0x8894A3B8, false);
 
-        String foot = "astucy client";
-        g.text(f, foot, 10, gh - 14, 0x4D9AA2AD, false);
+        String foot = "ASTUCY ENGINE";
+        g.text(AstucyFonts.ui8(), foot, 12, gh - 14, 0x4D64748B, false);
     }
 }

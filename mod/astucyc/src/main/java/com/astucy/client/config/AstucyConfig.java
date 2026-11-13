@@ -144,6 +144,51 @@ public final class AstucyConfig {
             data.put("_versao", stamp);
             flush();
         }
+        if (v < 7) {
+            // v7: migra módulos antigos para fonte anti-aliased ("font": true) e ativa Motion Blur de alta velocidade
+            for (var entry : data.entrySet()) {
+                Map<String, Object> val = entry.getValue();
+                if (val == null) {
+                    continue;
+                }
+                if (entry.getKey().startsWith("_perfil_")) {
+                    for (Object sub : val.values()) {
+                        if (sub instanceof Map<?, ?> subMap) {
+                            upgradeModuleMap((Map<String, Object>) subMap, null);
+                        }
+                    }
+                } else if (!entry.getKey().startsWith("_")) {
+                    upgradeModuleMap(val, entry.getKey());
+                }
+            }
+            Map<String, Object> stamp = new HashMap<>();
+            stamp.put("v", 7);
+            data.put("_versao", stamp);
+            flush();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void upgradeModuleMap(Map<String, Object> d, String id) {
+        Object rawProps = d.get("props");
+        Map<String, Object> pm;
+        if (rawProps instanceof Map<?, ?> existing) {
+            pm = (Map<String, Object>) existing;
+        } else {
+            pm = new HashMap<>();
+            d.put("props", pm);
+        }
+        pm.put("font", Boolean.TRUE);
+        if ("blur".equals(id)) {
+            d.put("enabled", Boolean.TRUE);
+            Object st = pm.get("strength");
+            if (!(st instanceof Number n) || n.doubleValue() <= 0.35) {
+                pm.put("strength", 1.25);
+            }
+            pm.put("speed_boost", Boolean.TRUE);
+            pm.put("hybrid", Boolean.TRUE);
+            pm.put("weighted", Boolean.TRUE);
+        }
     }
 
     /** Preferências do client (não são por módulo): animações, sons, etc. */

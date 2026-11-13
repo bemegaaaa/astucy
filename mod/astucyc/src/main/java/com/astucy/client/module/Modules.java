@@ -50,6 +50,11 @@ public final class Modules {
     private static boolean sneakLatched = false;
     private static boolean shiftWasDown = false;
     private static boolean zoomLatched = false;
+    private static float lastCamYaw = Float.NaN;
+    private static float lastCamPitch = Float.NaN;
+    private static long lastSpeedNs = -1L;
+    private static float highSpeedFactor = 0f;
+    private static float moveRushFactor = 0f;
 
     private Modules() {}
 
@@ -61,63 +66,67 @@ public final class Modules {
 
         // Informação (HUD)
         add(new Module("fps", "FPS", "Frames per second", ModuleCategory.INFORMACAO, true).at(0.012, 0.02));
-        add(new Module("ping", "Ping", "Latency to the server", ModuleCategory.INFORMACAO, true).at(0.012, 0.06));
-        add(new Module("server", "Server", "Current server address", ModuleCategory.INFORMACAO, true).at(0.012, 0.098));
+        add(new Module("ping", "Ping", "Server latency", ModuleCategory.INFORMACAO, true).at(0.012, 0.06));
+        add(new Module("server", "Server", "Server IP address", ModuleCategory.INFORMACAO, true).at(0.012, 0.098));
         add(new Module("memory", "Memory", "Game RAM usage", ModuleCategory.INFORMACAO, true).at(0.012, 0.136));
         add(new Module("speed", "Speed Display", "Blocks per second", ModuleCategory.INFORMACAO, true).at(0.012, 0.174));
         add(new Module("direcao", "Direction", "Facing (N/E/S/W)", ModuleCategory.INFORMACAO, true).at(0.5, 0.02));
-        add(new Module("sessao", "Session", "Playtime this session", ModuleCategory.INFORMACAO, true).at(0.012, 0.25));
+        add(new Module("sessao", "Session", "Session playtime", ModuleCategory.INFORMACAO, true).at(0.012, 0.25));
         add(new Module("hora", "Time", "Server world time", ModuleCategory.INFORMACAO, true).at(0.845, 0.135));
         add(new Module("bioma", "Biome", "Current biome", ModuleCategory.INFORMACAO, true).at(0.845, 0.173));
         add(new Module("coords", "Coords", "X, Y, Z + facing", ModuleCategory.INFORMACAO, true).at(0.845, 0.02));
-        add(new Module("efeitos", "Effects", "Active potion effects", ModuleCategory.INFORMACAO, true).at(0.845, 0.211));
+        add(new Module("efeitos", "Effects", "Active potions", ModuleCategory.INFORMACAO, true).at(0.845, 0.211));
         // Combate (HUD)
-        add(new Module("cps", "CPS Display", "Mouse clicks per second", ModuleCategory.COMBATE, true).at(0.012, 0.88));
-        add(new Module("keystrokes", "Keystrokes", "WASD + mouse buttons", ModuleCategory.COMBATE, true).at(0.012, 0.62));
-        add(new Module("reach", "Reach Display", "Distance to crosshair target", ModuleCategory.COMBATE, true).at(0.845, 0.88));
-        add(new Module("totem", "Totems", "Totems in inventory", ModuleCategory.COMBATE, true).at(0.845, 0.94));
+        add(new Module("cps", "CPS Display", "Clicks per second", ModuleCategory.COMBATE, true).at(0.012, 0.88));
+        add(new Module("keystrokes", "Keystrokes", "WASD + mouse keys", ModuleCategory.COMBATE, true).at(0.012, 0.62));
+        add(new Module("reach", "Reach Display", "Target distance", ModuleCategory.COMBATE, true).at(0.845, 0.88));
+        add(new Module("totem", "Totems", "Totem counter", ModuleCategory.COMBATE, true).at(0.845, 0.94));
         add(new Module("armor", "Armor", "Armor durability", ModuleCategory.COMBATE, true).at(0.845, 0.835));
         // Visão (toggle)
-        add(new Module("fullbright", "Fullbright", "No darkness, no potions", ModuleCategory.VISAO, false));
-        add(new Module("zoom", "Zoom", "Smooth zoom on hold", ModuleCategory.VISAO, false).isNew());
-        add(new Module("hurtcam", "No Hurt Cam", "Removes damage camera shake", ModuleCategory.VISAO, false).isNew());
+        add(new Module("fullbright", "Fullbright", "Max brightness", ModuleCategory.VISAO, false));
+        add(new Module("zoom", "Zoom", "Smooth hold zoom", ModuleCategory.VISAO, false).isNew());
+        add(new Module("hurtcam", "No Hurt Cam", "No damage shake", ModuleCategory.VISAO, false).isNew());
         // Utilidade (toggle + HUD)
         add(new Module("sprint", "Auto Sprint", "Always sprint", ModuleCategory.UTILIDADE, true).at(0.012, 0.30));
-        add(new Module("sneak", "Toggle Sneak", "Tap sneak to toggle", ModuleCategory.UTILIDADE, false).isNew());
+        add(new Module("sneak", "Toggle Sneak", "Tap sneak toggle", ModuleCategory.UTILIDADE, false).isNew());
         // Chat: historico infinito + pesquisa
-        add(new Module("chat", "Chat", "Infinite history and /chs search", ModuleCategory.UTILIDADE, true));
+        add(new Module("chat", "Chat", "History & /chs", ModuleCategory.UTILIDADE, true));
         // Informação extra (HUD)
         add(new Module("itens", "Held Item", "Held item count", ModuleCategory.INFORMACAO, true).at(0.012, 0.338).isNew());
         add(new Module("health", "Health", "HP + absorption", ModuleCategory.COMBATE, true).at(0.012, 0.414).isNew());
         add(new Module("hunger", "Hunger", "Food + saturation", ModuleCategory.COMBATE, true).at(0.012, 0.452).isNew());
         add(new Module("combo", "Combo Counter", "Consecutive hits", ModuleCategory.COMBATE, true).at(0.012, 0.49).isNew());
-        add(new Module("healthtag", "Player Health", "Health above player heads", ModuleCategory.COMBATE, false).isNew());
-        add(new Module("pack", "Pack", "Active resource pack", ModuleCategory.INFORMACAO, true).at(0.012, 0.376).isNew());
+        add(new Module("healthtag", "Player Health", "Overhead HP tag", ModuleCategory.COMBATE, false).isNew());
+        add(new Module("pack", "Pack", "Active pack name", ModuleCategory.INFORMACAO, true).at(0.012, 0.376).isNew());
         // PvP / info extra
-        add(new Module("target", "Target HUD", "Name + health of the entity you aim at", ModuleCategory.COMBATE, true)
+        add(new Module("target", "Target HUD", "Aimed target HUD", ModuleCategory.COMBATE, true)
                 .at(0.845, 0.28).isNew());
-        add(new Module("armordur", "Armor Durability", "Durability of each armor piece", ModuleCategory.COMBATE, true)
+        add(new Module("armordur", "Armor Durability", "Piece durability", ModuleCategory.COMBATE, true)
                 .at(0.845, 0.34).isNew());
         add(new Module("daycounter", "Day Counter", "World day number", ModuleCategory.INFORMACAO, true)
                 .at(0.012, 0.528).isNew());
-        add(new Module("itemcount", "Item Counter", "Held stack size and durability", ModuleCategory.INFORMACAO, true)
+        add(new Module("itemcount", "Item Counter", "Stack & durability", ModuleCategory.INFORMACAO, true)
                 .at(0.012, 0.566).isNew());
-        // Visão (comportamento)
-        add(new Module("viewmodel", "Viewmodel", "Hand position and size", ModuleCategory.VISAO, false).isNew());
-        // Blur = o mod Natural Motion Blur, controlado por aqui (liga/forca na hora)
-        add(new Module("blur", "Motion Blur", "Screen motion blur strength", ModuleCategory.VISAO, false).isNew());
+        // Visuals (comportamento & efeitos)
+        add(new Module("viewmodel", "Viewmodel", "Hand pose & scale", ModuleCategory.VISAO, false).isNew());
+        add(new Module("blur", "Motion Blur", "High-speed blur", ModuleCategory.VISAO, false).isNew());
+        add(new Module("speedfx", "High-Speed FX", "Velocity & FOV FX", ModuleCategory.VISAO, false).isNew());
+        add(new Module("ambience", "Ambience Tint", "Screen color tint", ModuleCategory.VISAO, false).isNew());
+        add(new Module("menublur", "Menu Glass FX", "Glass & spotlight", ModuleCategory.VISAO, false).isNew());
+        add(new Module("crosshair", "Crosshair", "Custom crosshair", ModuleCategory.VISAO, false).isNew());
         // Extras de HUD (desenho próprio, sem mixin)
-        add(new Module("watermark", "Watermark", "Astucy mark on the screen", ModuleCategory.INFORMACAO, true)
+        add(new Module("watermark", "Watermark", "Client watermark", ModuleCategory.INFORMACAO, true)
                 .at(0.5, 0.955).isNew());
-        add(new Module("fpsgraph", "FPS Graph", "Frame rate sparkline", ModuleCategory.INFORMACAO, true)
+        add(new Module("fpsgraph", "FPS Graph", "FPS sparkline", ModuleCategory.INFORMACAO, true)
                 .at(0.845, 0.40).isNew());
-        add(new Module("realtime", "Real Time", "Local clock (HH:MM:SS)", ModuleCategory.INFORMACAO, true)
+        add(new Module("realtime", "Real Time", "Local time clock", ModuleCategory.INFORMACAO, true)
                 .at(0.845, 0.56).isNew());
 
         // preset de fábrica (espelha o que um client de PvP liga de cara)
         for (String id : new String[]{
                 "fps", "ping", "coords", "cps", "keystrokes", "armor", "health",
-                "direcao", "efeitos", "zoom", "hurtcam", "sprint", "healthtag"}) {
+                "direcao", "efeitos", "zoom", "hurtcam", "sprint", "healthtag",
+                "blur", "speedfx", "menublur"}) {
             Module m = find(id);
             if (m != null) {
                 m.enabled = true;
@@ -177,6 +186,8 @@ public final class Modules {
         useWasDown = use;
         pruneClicks(CLICKS_L, now);
         pruneClicks(CLICKS_R, now);
+        updateHighSpeed(mc);
+        com.astucy.client.compat.BlurBridge.sync(find("blur"), highSpeedFactor);
         zoomTick(mc);  // a ~fps (suave); o tick abaixo é a garantia eterna
 
         // histórico do gráfico de FPS (96 amostras)
@@ -184,7 +195,58 @@ public final class Modules {
         while (FPS_HIST.size() > GRAPH_SAMPLES) {
             FPS_HIST.removeFirst();
         }
+    }
 
+    /** Calcula velocidade angular da câmera + velocidade física para o blur/FX de alta velocidade. */
+    private static void updateHighSpeed(Minecraft mc) {
+        if (mc.player == null) {
+            highSpeedFactor = 0f;
+            moveRushFactor = 0f;
+            lastCamYaw = Float.NaN;
+            lastSpeedNs = -1L;
+            return;
+        }
+        long nowNs = System.nanoTime();
+        float dt = lastSpeedNs < 0L ? 0.016f : Math.max(0.001f, Math.min(0.1f, (nowNs - lastSpeedNs) / 1e9f));
+        lastSpeedNs = nowNs;
+
+        float yaw = mc.player.getYRot();
+        float pitch = mc.player.getXRot();
+        float angSpeed = 0f;
+        if (!Float.isNaN(lastCamYaw)) {
+            float dy = yaw - lastCamYaw;
+            while (dy > 180f) dy -= 360f;
+            while (dy < -180f) dy += 360f;
+            float dp = pitch - lastCamPitch;
+            angSpeed = (float) Math.hypot(dy, dp) / dt;
+        }
+        lastCamYaw = yaw;
+        lastCamPitch = pitch;
+
+        var vel = mc.player.getDeltaMovement();
+        float bps = (float) (Math.hypot(vel.x, vel.z) * 20.0);
+        float vertBps = (float) (Math.abs(vel.y) * 20.0);
+        float moveTarget = Math.min(1f, Math.max(0f, (bps - 4.2f) / 7.5f) + (mc.player.isSprinting() ? 0.25f : 0f));
+        float camTarget = Math.min(1f, Math.max(0f, (angSpeed - 120f) / 680f));
+        float fallTarget = Math.min(1f, Math.max(0f, (vertBps - 10f) / 28f));
+
+        float combined = Math.min(1f, Math.max(moveTarget * 0.85f, Math.max(camTarget, fallTarget)));
+        float k = 1f - (float) Math.exp(-dt * 14.0);
+        highSpeedFactor += (combined - highSpeedFactor) * k;
+        moveRushFactor += (moveTarget - moveRushFactor) * (1f - (float) Math.exp(-dt * 10.0));
+    }
+
+    public static float highSpeedFactor() {
+        return highSpeedFactor;
+    }
+
+    public static float moveRushFactor() {
+        Module sfx = find("speedfx");
+        if (sfx == null || !sfx.enabled || !sfx.boolProp("fov_rush", true)) {
+            return 0f;
+        }
+        float intensity = (float) sfx.numProp("intensity", 1.0);
+        return moveRushFactor * 0.045f * intensity;
     }
 
     /** Valor do combo atual (zera depois de 3s sem acertar). */
@@ -375,10 +437,37 @@ public final class Modules {
             return;
         }
         frame(mc);
-        // HUD na fonte vanilla (bitmap, nítida). Menus continuam no DM Sans.
-        Font font = mc.font;
+        // HUD usa Montserrat anti-aliased por padrão (zero pixelado / serrilhado)
+        Font font = com.astucy.client.AstucyFonts.ui();
         int gw = g.guiWidth();
         int gh = g.guiHeight();
+
+        // Ambience Tint (color grading suave na tela inteira)
+        Module amb = find("ambience");
+        if (amb != null && amb.enabled && mc.gui.screen() == null) {
+            float str = (float) amb.numProp("strength", 0.14);
+            int alpha = Math.max(0, Math.min(90, Math.round(str * 255f)));
+            int rgb = amb.boolProp("emerald", true) ? 0x16C975 : (amb.fgColor & 0xFFFFFF);
+            if (alpha > 0) {
+                Ui.rect(g, 0, 0, gw, gh, (alpha << 24) | rgb);
+            }
+        }
+
+        // High-Speed FX (vinheta periférica dinâmica em alta velocidade)
+        Module sfx = find("speedfx");
+        if (sfx != null && sfx.enabled && mc.gui.screen() == null && highSpeedFactor > 0.04f) {
+            float intensity = (float) sfx.numProp("intensity", 1.0);
+            int a = Math.min(72, Math.round(highSpeedFactor * intensity * 38f));
+            if (a > 2) {
+                int col = (a << 24) | 0x38C975;
+                int r = Math.max(gw, gh) / 3;
+                com.astucy.client.ui.Skin.glow(g, 0, 0, r, col);
+                com.astucy.client.ui.Skin.glow(g, gw, 0, r, col);
+                com.astucy.client.ui.Skin.glow(g, 0, gh, r, col);
+                com.astucy.client.ui.Skin.glow(g, gw, gh, r, col);
+            }
+        }
+
         for (Module m : REGISTRY) {
             if (!m.hud) {
                 continue;
@@ -390,6 +479,152 @@ public final class Modules {
             int x = (int) Math.round(m.anchorX * gw);
             int y = (int) Math.round(m.anchorY * gh);
             drawHud(g, font, m, x, y);
+        }
+        Module ch = find("crosshair");
+        if (ch != null && ch.enabled && mc.options.getCameraType().isFirstPerson() && mc.gui.screen() == null) {
+            drawCrosshair(g, mc, ch, gw / 2, gh / 2);
+        }
+        if (mc.gui.screen() == null) {
+            renderJoinIntro(g, font, gw, gh);
+        }
+    }
+
+    private static long joinIntroStamp = 0L;
+
+    public static void triggerJoinIntro() {
+        joinIntroStamp = System.currentTimeMillis();
+    }
+
+    /**
+     * Animação cinematográfica ao entrar no mundo: a logo oficial Astucy nasce
+     * girando no centro-alto da tela, voa com rastro esmeralda até o banner de
+     * boas-vindas no topo e recolhe suavemente após 3.6 segundos.
+     */
+    private static void renderJoinIntro(GuiGraphicsExtractor g, Font f, int gw, int gh) {
+        if (joinIntroStamp <= 0L) {
+            return;
+        }
+        long elapsed = System.currentTimeMillis() - joinIntroStamp;
+        if (elapsed < 0L || elapsed > 3600L) {
+            return;
+        }
+        float inRaw = Math.min(1f, elapsed / 620f);
+        float outRaw = elapsed > 3050L ? Math.min(1f, (elapsed - 3050L) / 550f) : 0f;
+        float outEase = outRaw * outRaw * (3f - 2f * outRaw);
+        float vis = 1f - outEase;
+        if (vis <= 0.01f) {
+            return;
+        }
+
+        String brandText = "ASTUCY";
+        String subText = "Press R-SHIFT for menu";
+        Font bf = com.astucy.client.AstucyFonts.brand();
+        int bw = 32 + bf.width(brandText) + 14 + f.width(subText) + 14;
+        int bh = 24;
+        int bx = (gw - bw) / 2;
+        int by = Math.round(14f - outEase * 28f);
+
+        float pillReveal = Math.min(1f, Math.max(0f, (inRaw - 0.28f) / 0.72f));
+        float pillEase = 1f - (1f - pillReveal) * (1f - pillReveal) * (1f - pillReveal);
+        float alpha = pillEase * vis;
+
+        if (alpha > 0.02f) {
+            int curW = Math.max(36, Math.round(bw * (0.35f + 0.65f * pillEase)));
+            int curX = (gw - curW) / 2;
+            Ui.shadow(g, curX, by, curW, bh);
+            int topBg = (((int) (0xE8 * alpha)) << 24) | 0x090D14;
+            int botBg = (((int) (0xEE * alpha)) << 24) | 0x06080D;
+            if (!com.astucy.client.ui.Skin.boxGrad(g, curX, by, curW, bh, topBg, botBg, 8)) {
+                Ui.rrect(g, curX, by, curW, bh, topBg, 8);
+            }
+            Ui.rframe(g, curX, by, curW, bh, (((int) (0x55 * alpha)) << 24) | 0x22C55E, 8);
+
+            if (pillEase > 0.55f) {
+                float txtA = Math.min(1f, (pillEase - 0.55f) / 0.45f) * vis;
+                int tc = (((int) (0xFF * txtA)) << 24) | 0xF8FAFC;
+                int sc = (((int) (0xFF * txtA)) << 24) | 0x94A3B8;
+                int dc = (((int) (0x88 * txtA)) << 24) | 0x22C55E;
+                int tx = bx + 28;
+                Ui.spaced(g, bf, brandText, tx, by + (bh - bf.lineHeight) / 2 + 1, tc, 1);
+                int sepX = tx + bf.width(brandText) + 9;
+                Ui.rect(g, sepX, by + 6, 1, bh - 12, dc);
+                g.text(f, subText, sepX + 7, by + (bh - f.lineHeight) / 2 + 1, sc, false);
+            }
+
+            // feixe de luz esmeralda que varre o banner ao encaixar
+            float sweep = (elapsed - 480f) / 900f;
+            if (sweep > 0f && sweep < 1f) {
+                int sx = curX + Math.round(sweep * curW);
+                com.astucy.client.ui.Skin.glow(g, sx, by + bh / 2, 18,
+                        (((int) (0x36 * Math.sin(sweep * Math.PI) * vis)) << 24) | 0x4ADE80);
+            }
+        }
+
+        float idleAng = (float) ((elapsed % 5000L) / 5000.0 * Math.PI * 2.0);
+        float startX = gw * 0.5f;
+        float startY = gh * 0.36f;
+        float endX = bx + 14f;
+        float endY = by + bh * 0.5f;
+        int mainCol = (((int) (0xFF * vis)) << 24) | 0xFFFFFF;
+        int accCol = (((int) (0xFF * vis)) << 24) | 0x22C55E;
+        com.astucy.client.ui.Skin.logoTravel(g,
+                startX, startY,
+                endX, endY,
+                inRaw,
+                26f * vis, 13f * vis,
+                idleAng,
+                mainCol, accCol);
+    }
+
+    /** Mira customizada anti-aliased com expansão dinâmica opcional. */
+    private static float crosshairSpread = 0f;
+
+    private static void drawCrosshair(GuiGraphicsExtractor g, Minecraft mc, Module m, int cx, int cy) {
+        boolean dot = m.boolProp("dot", true);
+        boolean cross = m.boolProp("cross", true);
+        boolean ring = m.boolProp("ring", false);
+        boolean dynamic = m.boolProp("dynamic", true);
+        boolean hitColor = m.boolProp("hitcolor", true);
+        int size = (int) Math.max(2, Math.min(12, Math.round(m.numProp("size", 4))));
+        int gap = (int) Math.max(1, Math.min(10, Math.round(m.numProp("gap", 3))));
+
+        float targetSpread = 0f;
+        if (dynamic && mc.player != null) {
+            if (mc.options.keyAttack.isDown()) {
+                targetSpread += 2.5f;
+            }
+            if (!mc.player.onGround()) {
+                targetSpread += 2.0f;
+            } else if (mc.player.isSprinting()) {
+                targetSpread += 1.2f;
+            }
+        }
+        crosshairSpread += (targetSpread - crosshairSpread) * 0.25f;
+        int effGap = gap + Math.round(crosshairSpread);
+
+        boolean hasTarget = mc.crosshairPickEntity instanceof LivingEntity le && le != mc.player && le.isAlive();
+        int col = (hitColor && hasTarget) ? 0xFFFF4D5A : m.fgColor;
+        int shadowCol = 0x88000000;
+
+        if (ring) {
+            int r = effGap + size;
+            Ui.rframe(g, cx - r, cy - r, r * 2, r * 2, (col & 0x00FFFFFF) | 0xAA000000, r);
+        }
+        if (dot) {
+            com.astucy.client.ui.Skin.disc(g, cx - 1, cy - 1, 3, shadowCol);
+            com.astucy.client.ui.Skin.disc(g, cx - 1, cy - 1, 2, col);
+        }
+        if (cross) {
+            // Sombra sutil + traços nítidos
+            Ui.rect(g, cx - effGap - size, cy, size, 2, shadowCol);
+            Ui.rect(g, cx + effGap, cy, size, 2, shadowCol);
+            Ui.rect(g, cx, cy - effGap - size, 2, size, shadowCol);
+            Ui.rect(g, cx, cy + effGap, 2, size, shadowCol);
+
+            Ui.rect(g, cx - effGap - size, cy, size, 1, col);
+            Ui.rect(g, cx + effGap, cy, size, 1, col);
+            Ui.rect(g, cx, cy - effGap - size, 1, size, col);
+            Ui.rect(g, cx, cy + effGap, 1, size, col);
         }
     }
 
@@ -421,10 +656,104 @@ public final class Modules {
             drawFpsGraph(g, font, m, x, y, mc);
             return;
         }
+        if (m.id.equals("target")) {
+            drawTarget(g, font, m, x, y, mc);
+            return;
+        }
         String text = chipText(m, mc);
         if (text != null) {
             drawChip(g, font, m, x, y, text);
         }
+    }
+
+    /* ---- Target HUD (card moderno com barra de vida animada) ---- */
+
+    private static final int TARGET_W = 124;
+    private static final int TARGET_H = 34;
+    private static float targetHpAnim = 1f;
+    private static String lastTargetName = "Target";
+    private static float lastTargetHp = 20f;
+    private static float lastTargetMax = 20f;
+    private static float lastTargetDist = 0f;
+    private static long lastTargetSeenAt = 0L;
+
+    private static void drawTarget(GuiGraphicsExtractor g, Font font, Module m, int x, int y, Minecraft mc) {
+        LivingEntity target = null;
+        if (mc.crosshairPickEntity instanceof LivingEntity le && le != mc.player && le.isAlive()) {
+            target = le;
+        }
+        long now = System.currentTimeMillis();
+        if (target != null) {
+            lastTargetName = target.getName().getString();
+            if (lastTargetName.length() > 15) {
+                lastTargetName = lastTargetName.substring(0, 15);
+            }
+            lastTargetHp = target.getHealth() + target.getAbsorptionAmount();
+            lastTargetMax = Math.max(1f, target.getMaxHealth() + target.getAbsorptionAmount());
+            lastTargetDist = mc.player != null ? mc.player.distanceTo(target) : 0f;
+            lastTargetSeenAt = now;
+        } else if (preview) {
+            lastTargetName = mc.player != null ? mc.player.getName().getString() : "Player";
+            lastTargetHp = 18.5f;
+            lastTargetMax = 20f;
+            lastTargetDist = 3.1f;
+            lastTargetSeenAt = now;
+        }
+
+        long elapsed = now - lastTargetSeenAt;
+        if (!preview && target == null && elapsed > 1200L) {
+            return;
+        }
+        float fade = preview || target != null ? 1f : Math.max(0f, 1f - (elapsed - 600f) / 600f);
+        fade = Math.max(0f, Math.min(1f, fade));
+        if (fade <= 0.02f) {
+            return;
+        }
+
+        float ratio = Math.max(0f, Math.min(1f, lastTargetHp / lastTargetMax));
+        targetHpAnim += (ratio - targetHpAnim) * 0.18f;
+
+        var pose = g.pose();
+        pose.pushMatrix();
+        pose.translate((float) x, (float) y);
+        pose.scale((float) m.scale, (float) m.scaleY);
+
+        if (m.bg) {
+            int bgA = Math.round(((m.bgColor >>> 24) & 0xFF) * fade);
+            chipBg(g, 0, 0, TARGET_W, TARGET_H, (bgA << 24) | (m.bgColor & 0x00FFFFFF));
+        }
+
+        int fgA = Math.round(((m.fgColor >>> 24) & 0xFF) * fade);
+        int fg = (fgA << 24) | (m.fgColor & 0x00FFFFFF);
+        int subCol = (Math.round(0xAA * fade) << 24) | 0x9AA2AB;
+
+        // Indicador lateral / avatar estilizado
+        boolean hurt = target != null && target.hurtTime > 0;
+        int badgeCol = hurt
+                ? ((Math.round(0xEE * fade) << 24) | 0xFF5D5D)
+                : ((Math.round(0x33 * fade) << 24) | (m.fgColor & 0x00FFFFFF));
+        Ui.rrect(g, 5, 5, 24, 24, badgeCol, 5);
+        String initial = lastTargetName.isEmpty() ? "?" : lastTargetName.substring(0, 1).toUpperCase(java.util.Locale.ROOT);
+        Ui.ctext(g, com.astucy.client.AstucyFonts.midBold(), initial, 17, 12, fg);
+
+        // Nome + HP e distância
+        softText(g, com.astucy.client.AstucyFonts.bold(), lastTargetName, 34, 5, fg, m.shadow);
+        String hpStr = String.format(java.util.Locale.ROOT, "%.1f HP  ·  %.1fm", lastTargetHp, lastTargetDist);
+        g.text(font, hpStr, 34, 15, subCol, false);
+
+        // Barra de vida suave
+        int bx = 34;
+        int by = 25;
+        int bw = TARGET_W - bx - 6;
+        int bh = 4;
+        Ui.rrect(g, bx, by, bw, bh, (Math.round(0x44 * fade) << 24) | 0xFFFFFF, 2);
+        int fillW = Math.round(bw * targetHpAnim);
+        if (fillW > 0) {
+            int hpRgb = ratio > 0.55f ? 0x38C975 : ratio > 0.25f ? 0xF0B449 : 0xF05454;
+            Ui.rrect(g, bx, by, Math.max(2, fillW), bh, (fgA << 24) | hpRgb, 2);
+        }
+
+        pose.popMatrix();
     }
 
     /* ---- watermark e gráfico de FPS ---- */
@@ -434,26 +763,27 @@ public final class Modules {
     private static final int GRAPH_SAMPLES = 96;
     private static final Deque<Integer> FPS_HIST = new ArrayDeque<>();
 
-    /** Marca do client: ponto verde + "ASTUCY" + versão miúda. */
+    /** Marca do client: ponto verde anti-aliased + "ASTUCY" + versão miúda. */
     private static void drawWatermark(GuiGraphicsExtractor g, Font font, Module m, int x, int y) {
         var pose = g.pose();
         pose.pushMatrix();
         pose.translate((float) x, (float) y);
         pose.scale((float) m.scale, (float) m.scaleY);
 
+        Font bFont = com.astucy.client.AstucyFonts.bold();
         String mark = "ASTUCY";
         String ver = "0.1";
-        int mw = font.width(mark);
-        int h = font.lineHeight + 4;
-        int w = 12 + mw + 4 + font.width(ver);
+        int mw = bFont.width(mark);
+        int h = font.lineHeight + 6;
+        int w = 14 + mw + 5 + font.width(ver) + 6;
 
         if (m.bg) {
             chipBg(g, 0, 0, w, h, m.bgColor);
         }
-        Ui.rect(g, 4, h / 2 - 2, 4, 4, Ui.GREEN);
-        g.text(font, mark, 11, 2, m.fgColor, m.shadow);
+        com.astucy.client.ui.Skin.disc(g, 5, h / 2 - 2, 4, Ui.GREEN);
+        softText(g, bFont, mark, 13, 3, m.fgColor, m.shadow);
         int dim = (m.fgColor & 0xFFFFFF) | 0x88000000;
-        g.text(font, ver, 11 + mw + 4, 2, dim, false);
+        g.text(font, ver, 13 + mw + 4, 3, dim, false);
         pose.popMatrix();
     }
 
@@ -493,7 +823,7 @@ public final class Modules {
             Ui.rect(g, pad + gw - count + k, top + gh - bh, 1, bh, 0xCC000000 | rgb);
         }
 
-        g.text(font, String.valueOf(mc.getFps()), pad, pad, m.fgColor, m.shadow);
+        softText(g, font, String.valueOf(mc.getFps()), pad, pad, m.fgColor, m.shadow);
         String lbl = "FPS";
         g.text(font, lbl, GRAPH_W - pad - font.width(lbl), pad, 0x669AA2AB, false);
         pose.popMatrix();
@@ -502,7 +832,7 @@ public final class Modules {
     /* ---- bússola estilo boss bar ---- */
 
     public static final int COMPASS_W = 200;
-    public static final int COMPASS_H = 16;
+    public static final int COMPASS_H = 18;
 
     /** Deslocamento do desenho em relação à âncora (bússola é centrada). */
     public static int drawOffsetX(Module m, int w) {
@@ -511,8 +841,8 @@ public final class Modules {
 
     /**
      * Direção em tempo real: faixa horizontal com N/NE/E/SE/S/SW/W/NW que
-     * desliza conforme você gira a câmera, com o marcador central fixo
-     * (igual boss bar). Âncora = centro da faixa.
+     * desliza suavemente com rotação em ponto flutuante (sem travadas de 1°),
+     * com marcador central fixo. Âncora = centro da faixa.
      */
     private static void drawCompass(GuiGraphicsExtractor g, Font font, Module m, int cx, int y, Minecraft mc) {
         var pose = g.pose();
@@ -530,44 +860,52 @@ public final class Modules {
         }
 
         float yaw = mc.player.getYRot();
-        int bearing = Math.floorMod(Math.round(yaw) + 180, 360);
+        float exactBearing = ((yaw + 180f) % 360f + 360f) % 360f;
 
-        // traços menores a cada 15°
-        for (int d = -90; d <= 90; d += 15) {
-            int b = Math.floorMod(bearing + d, 360);
-            if (b % 45 == 0) {
+        // traços menores a cada 15° com interpolação contínua
+        for (int bTick = 0; bTick < 360; bTick += 15) {
+            if (bTick % 45 == 0) {
                 continue;
             }
-            int lx = Math.round(d / 90f * span);
-            Ui.rect(g, lx, h - 5, 1, 3, 0x66FFFFFF);
-        }
-
-        // letras cardeais e intercardinais, com fade nas bordas
-        String[] labels = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
-        for (int i = 0; i < 8; i++) {
-            int delta = angleDelta(i * 45, bearing);
-            if (Math.abs(delta) > 88) {
+            float delta = angleDeltaF(bTick, exactBearing);
+            if (Math.abs(delta) > 88f) {
                 continue;
             }
             int lx = Math.round(delta / 90f * span);
             float fade = 1f - Math.abs(delta) / 90f;
-            int alpha = 0x40 + Math.round(0xBF * fade);
-            int color = (Math.min(alpha, 0xFF) << 24) | (m.fgColor & 0xFFFFFF);
-            Ui.ctext(g, font, labels[i], lx, 3, color);
+            int alpha = Math.round(0x66 * fade);
+            Ui.rect(g, lx, h - 5, 1, 3, (alpha << 24) | 0xFFFFFF);
         }
 
-        // marcador central (fixo) — fio vertical + topo curto
-        Ui.rect(g, -1, 0, 2, h, m.fgColor);
-        Ui.rect(g, -2, 0, 4, 2, m.fgColor);
+        // letras cardeais e intercardinais, com fade suave nas bordas
+        String[] labels = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+        Font boldFont = com.astucy.client.AstucyFonts.bold();
+        for (int i = 0; i < 8; i++) {
+            float delta = angleDeltaF(i * 45f, exactBearing);
+            if (Math.abs(delta) > 88f) {
+                continue;
+            }
+            int lx = Math.round(delta / 90f * span);
+            float fade = 1f - Math.abs(delta) / 90f;
+            int alpha = 0x35 + Math.round(0xCA * fade);
+            int color = (Math.min(alpha, 0xFF) << 24) | (m.fgColor & 0xFFFFFF);
+            Font fUse = (i % 2 == 0) ? boldFont : font;
+            Ui.ctext(g, fUse, labels[i], lx, 4, color);
+        }
 
-        // base da barra
-        Ui.rect(g, -half, h - 1, w, 1, 0x40FFFFFF);
+        // marcador central (fixo) — indicador superior limpo
+        Ui.rect(g, -1, 0, 2, 3, Ui.GREEN);
+        Ui.rect(g, 0, 3, 1, h - 3, (m.fgColor & 0x00FFFFFF) | 0x55000000);
         pose.popMatrix();
     }
 
-    /** Menor diferença angular assinada entre dois rumos (graus). */
-    private static int angleDelta(int a, int b) {
-        return Math.floorMod(a - b + 180, 360) - 180;
+    /** Menor diferença angular assinada entre dois rumos em float (-180..180). */
+    private static float angleDeltaF(float a, float b) {
+        float d = (a - b + 180f) % 360f;
+        if (d < 0f) {
+            d += 360f;
+        }
+        return d - 180f;
     }
 
     /** Rótulo do chip (com ou sem prefixo, conforme customização). */
@@ -632,9 +970,12 @@ public final class Modules {
         return m.boolProp("brackets", false) ? "[" + body + "]" : body;
     }
 
-    /** Fonte do chip: vanilla ou Poppins (opção por módulo). */
+    /** Fonte do chip: Montserrat anti-aliased por padrão (opção por módulo permite alternar). */
     public static Font hudFont(Module m, Font base) {
-        return m != null && m.boolProp("font", false) ? com.astucy.client.AstucyFonts.label() : base;
+        if (m == null || m.boolProp("font", true)) {
+            return com.astucy.client.AstucyFonts.ui();
+        }
+        return Minecraft.getInstance().font;
     }
 
     private static String prefixOf(Module m) {
@@ -675,9 +1016,9 @@ public final class Modules {
     }
 
     /** Raio dos cantos do HUD (mesmo em todos os chips). */
-    public static final int CHIP_R = 3;
+    public static final int CHIP_R = 5;
 
-    /** Fundo do HUD: preto translúcido, cantos suaves, sem borda. */
+    /** Fundo do HUD: vidro translúcido limpo, cantos anti-aliased, sem borda. */
     public static void chipBg(GuiGraphicsExtractor g, int x, int y, int w, int h, int bg) {
         if (w <= 0 || h <= 0) {
             return;
@@ -689,16 +1030,35 @@ public final class Modules {
         Ui.rrect(g, x, y, w, h, bg, CHIP_R);
     }
 
+    /**
+     * Texto do HUD com sombra suave sub-pixel (0.6px, 40% preto) em vez da
+     * sombra dura de 1px do vanilla — tira o visual "client velho".
+     */
+    public static void softText(GuiGraphicsExtractor g, Font font, String s, int x, int y, int color, boolean shadow) {
+        if (shadow) {
+            int a = (color >>> 24) & 0xFF;
+            int sa = Math.round(a * 0.40f);
+            if (sa > 4) {
+                var pose = g.pose();
+                pose.pushMatrix();
+                pose.translate(0.6f, 0.6f);
+                g.text(font, s, x, y, sa << 24, false);
+                pose.popMatrix();
+            }
+        }
+        g.text(font, s, x, y, color, false);
+    }
+
     /** Largura fixa por módulo: o fundo não "pula" quando o valor muda de tamanho. */
     private static final Map<String, Integer> CHIP_W = new HashMap<>();
 
     /** Largura do chip (memo da maior já vista — só cresce, nunca treme). */
     private static int chipWidth(Font font, Module m, String label) {
-        int w = font.width(label) + 7;
+        int w = font.width(label) + 12;
         int memo = CHIP_W.getOrDefault(m.id, 0);
         // valor oscilando (1 dígito a mais/menos) mantém a caixa parada;
         // mudança grande (coords, nome de item) deixa encolher de novo
-        if (w >= memo || memo - w > 12) {
+        if (w >= memo || memo - w > 14) {
             CHIP_W.put(m.id, w);
             return w;
         }
@@ -706,8 +1066,8 @@ public final class Modules {
     }
 
     /**
-     * Chip do HUD — pill fina e simples ): só fundo
-     * translúcido + texto. Sem bordas pesadas.
+     * Chip do HUD — pill moderna e limpa: fundo translúcido anti-aliased +
+     * hierarquia sutil entre prefixo e valor.
      */
     public static void drawChip(GuiGraphicsExtractor g, Font font, Module m, int x, int y, String label) {
         font = hudFont(m, font);
@@ -716,11 +1076,22 @@ public final class Modules {
         pose.translate((float) x, (float) y);
         pose.scale((float) m.scale, (float) m.scaleY);
         int w = chipWidth(font, m, label);
-        int h = font.lineHeight + 4;
+        int h = font.lineHeight + 6;
         if (m.bg) {
             chipBg(g, 0, 0, w, h, m.bgColor);
         }
-        g.text(font, label, 3, 2, m.fgColor, m.shadow);
+        int sep = m.prefix ? label.indexOf(": ") : -1;
+        if (sep > 0) {
+            String pre = label.substring(0, sep + 2);
+            String val = label.substring(sep + 2);
+            int fgA = (m.fgColor >>> 24) & 0xFF;
+            int preA = Math.max(0x40, Math.round(fgA * 0.72f));
+            int preCol = (preA << 24) | (m.fgColor & 0x00FFFFFF);
+            softText(g, font, pre, 6, 3, preCol, m.shadow);
+            softText(g, font, val, 6 + font.width(pre), 3, m.fgColor, m.shadow);
+        } else {
+            softText(g, font, label, 6, 3, m.fgColor, m.shadow);
+        }
         pose.popMatrix();
     }
 
@@ -739,21 +1110,26 @@ public final class Modules {
             return new int[]{(int) Math.round(s[0] * m.scale), (int) Math.round(s[1] * m.scaleY)};
         }
         if (m.id.equals("watermark")) {
-            int mw = font.width("ASTUCY");
-            int w = 12 + mw + 4 + font.width("0.1");
+            Font bFont = com.astucy.client.AstucyFonts.bold();
+            int mw = bFont.width("ASTUCY");
+            int w = 14 + mw + 5 + font.width("0.1") + 6;
             return new int[]{(int) Math.round(w * m.scale),
-                    (int) Math.round((font.lineHeight + 4) * m.scaleY)};
+                    (int) Math.round((font.lineHeight + 6) * m.scaleY)};
         }
         if (m.id.equals("fpsgraph")) {
             return new int[]{(int) Math.round(GRAPH_W * m.scale), (int) Math.round(GRAPH_H * m.scaleY)};
         }
+        if (m.id.equals("target")) {
+            return new int[]{(int) Math.round(TARGET_W * m.scale), (int) Math.round(TARGET_H * m.scaleY)};
+        }
         int w = chipWidth(font, m, label);
-        int h = font.lineHeight + 4;
+        int h = font.lineHeight + 6;
         return new int[]{(int) Math.round(w * m.scale), (int) Math.round(h * m.scaleY)};
     }
 
     /** Teclas: tamanho configurável (12..32px) + 2 de gap, 3 colunas. */
     private static final int KEY_GAP = 2;
+    private static final Map<String, Float> KEY_ANIM = new HashMap<>();
 
     private static int keyBox(Module m) {
         return (int) Math.max(12, Math.min(32, Math.round(m.numProp("box", 18))));
@@ -768,7 +1144,7 @@ public final class Modules {
             h += gap + mouseH;
         }
         if (m.boolProp("space", true)) {
-            h += gap + s;
+            h += gap + Math.max(10, s * 2 / 3);
         }
         return new int[]{s * 3 + gap * 2, h};
     }
@@ -800,21 +1176,60 @@ public final class Modules {
             cy += mouseH + gap;
         }
         if (m.boolProp("space", true)) {
-            key(g, font, m, 0, cy, cols, s, "SPACE", null, mc.options.keyJump.isDown());
+            int spaceH = Math.max(10, s * 2 / 3);
+            key(g, font, m, 0, cy, cols, spaceH, "SPACE", null, mc.options.keyJump.isDown());
         }
         pose.popMatrix();
     }
 
+    private static int lerpArgb(int a, int b, float t) {
+        t = Math.max(0f, Math.min(1f, t));
+        int aA = (a >>> 24) & 0xFF, bA = (b >>> 24) & 0xFF;
+        int aR = (a >>> 16) & 0xFF, bR = (b >>> 16) & 0xFF;
+        int aG = (a >>> 8) & 0xFF, bG = (b >>> 8) & 0xFF;
+        int aB = a & 0xFF, bB = b & 0xFF;
+        return (Math.round(aA + (bA - aA) * t) << 24)
+                | (Math.round(aR + (bR - aR) * t) << 16)
+                | (Math.round(aG + (bG - aG) * t) << 8)
+                | Math.round(aB + (bB - aB) * t);
+    }
+
+    private static final Map<String, Long> KEY_STAMP = new HashMap<>();
+
     private static void key(GuiGraphicsExtractor g, Font font, Module m, int x, int y, int w, int h,
                             String label, String sub, boolean press) {
-        int bg = press ? m.fgColor : m.bgColor;
-        int fg = press ? m.bgColor : m.fgColor;
-        if (press) {
-            Ui.rrect(g, x, y, w, h, bg, CHIP_R);
-        } else if (m.bg) {
-            chipBg(g, x, y, w, h, bg);
+        // animação por tempo real (igual em 60 ou 400 fps)
+        long nowNs = System.nanoTime();
+        long last = KEY_STAMP.getOrDefault(label, nowNs);
+        KEY_STAMP.put(label, nowNs);
+        float dt = Math.min(0.05f, Math.max(0f, (nowNs - last) / 1_000_000_000f));
+        float cur = KEY_ANIM.getOrDefault(label, 0f);
+        float target = press ? 1f : 0f;
+        float speed = press ? 34f : 14f;
+        cur += (target - cur) * (1f - (float) Math.exp(-speed * dt));
+        if (Math.abs(target - cur) < 0.01f) {
+            cur = target;
         }
-        if (sub == null) {
+        KEY_ANIM.put(label, cur);
+
+        int baseBg = m.bg ? m.bgColor : 0x00000000;
+        int pressBg = (0xE6 << 24) | (m.fgColor & 0x00FFFFFF);
+        int bg = lerpArgb(baseBg, pressBg, cur);
+        int pressFg = (0xFF << 24) | (m.bgColor & 0x00FFFFFF);
+        if ((m.bgColor & 0x00FFFFFF) == (m.fgColor & 0x00FFFFFF)) {
+            pressFg = 0xFF101318;
+        }
+        int fg = lerpArgb(m.fgColor, pressFg, cur);
+
+        if (m.bg || cur > 0.02f) {
+            // leve "afundar" ao pressionar (encolhe 1px nas bordas)
+            int inset = Math.round(cur);
+            Ui.rrect(g, x + inset, y + inset, w - inset * 2, h - inset * 2, bg, CHIP_R);
+        }
+        if ("SPACE".equals(label)) {
+            int barW = Math.round(w * (0.38f + 0.14f * cur));
+            Ui.rrect(g, x + (w - barW) / 2, y + h / 2 - 1, barW, 2, fg, 1);
+        } else if (sub == null) {
             Ui.ctext(g, font, label, x + w / 2, y + (h - font.lineHeight) / 2 + 1, fg);
         } else {
             Ui.ctext(g, font, label, x + w / 2, y + 3, fg);
@@ -934,10 +1349,10 @@ public final class Modules {
             String t = durText(s, m);
             int color = durColor(s, m);
             if (left) {
-                g.text(font, t, 3, ry + 5, color, m.shadow);
+                softText(g, font, t, 3, ry + 5, color, m.shadow);
                 g.item(s, 3 + textW + 3, ry);
             } else {
-                g.text(font, t, 3 + textW - font.width(t), ry + 5, color, m.shadow);
+                softText(g, font, t, 3 + textW - font.width(t), ry + 5, color, m.shadow);
                 g.item(s, 3, ry);
             }
         }
@@ -1093,12 +1508,12 @@ public final class Modules {
             }
             String ptxt = potText(e, m);
             if (ts == 1f) {
-                g.text(font, ptxt, tx, ry + 5, potColor(e, m), m.shadow);
+                softText(g, font, ptxt, tx, ry + 5, potColor(e, m), m.shadow);
             } else {
                 pose.pushMatrix();
                 pose.translate((float) tx, (float) (ry + 5 + (font.lineHeight - font.lineHeight * ts) / 2f));
                 pose.scale(ts, ts);
-                g.text(font, ptxt, 0, 0, potColor(e, m), m.shadow);
+                softText(g, font, ptxt, 0, 0, potColor(e, m), m.shadow);
                 pose.popMatrix();
             }
         }

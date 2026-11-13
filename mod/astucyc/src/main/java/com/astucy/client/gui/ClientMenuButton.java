@@ -1,5 +1,6 @@
 package com.astucy.client.gui;
 
+import com.astucy.client.ui.Skin;
 import com.astucy.client.ui.Ui;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -9,11 +10,14 @@ import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 
 /**
- * Botãozinho quadrado ao lado dos botões do vanilla que abre o menu do client.
- * Desenhado por nós (nada de sprite do jogo) — três traços que ficam verdes no
- * hover, no mesmo vidro escuro do resto da interface.
+ * Botãozinho quadrado ao lado dos botões do vanilla que abre o menu do client:
+ * exibe a logo oficial do Astucy que gira e acende em esmeralda no hover.
  */
 public final class ClientMenuButton extends AbstractWidget {
+
+    private float hoverAnim = 0f;
+    private float spinAngle = 0f;
+    private long lastMs = System.currentTimeMillis();
 
     public ClientMenuButton(int x, int y, int size) {
         super(x, y, size, size, Component.literal("Astucy menu"));
@@ -21,17 +25,28 @@ public final class ClientMenuButton extends AbstractWidget {
 
     @Override
     protected void extractWidgetRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partial) {
+        long now = System.currentTimeMillis();
+        float dt = Math.min(0.06f, Math.max(0.002f, (now - lastMs) / 1000f));
+        lastMs = now;
+
         int x = getX();
         int y = getY();
         int s = getWidth();
-        boolean hover = isHovered();
+        float target = isHovered() ? 1f : 0f;
+        hoverAnim += (target - hoverAnim) * 0.22f;
+        spinAngle += dt * (0.8f + hoverAnim * 4.2f);
 
-        Ui.rrect(g, x, y, s, s, hover ? 0xFF232529 : 0xFF191A1D, 5);
+        int bg = Ui.mix(0xD811151C, 0xEE16241F, hoverAnim);
+        Ui.rrect(g, x, y + 1, s, s, 0x38000000, 6);
+        Ui.rrect(g, x, y, s, s, bg, 6);
+        if (hoverAnim > 0.02f) {
+            Skin.glow(g, x + s / 2, y + s / 2, s, ((int) (0x2E * hoverAnim) << 24) | 0x22C55E);
+            Ui.rframe(g, x, y, s, s, Ui.mix(0x0022C55E, 0x8822C55E, hoverAnim), 6);
+        }
 
-        int c = hover ? 0xFFFFFFFF : 0xFFD6DBE1;
-        Ui.rect(g, x + 6, y + 6, s - 12, 1, c);
-        Ui.rect(g, x + 6, y + 10, s - 12, 1, c);
-        Ui.rect(g, x + 6, y + 14, s - 12, 1, c);
+        int c = Ui.mix(0xFFD6DBE1, 0xFF34D399, hoverAnim);
+        float logoSz = (s - 6) + hoverAnim * 1.2f;
+        Skin.logo(g, x + s / 2f, y + s / 2f, logoSz, spinAngle, c);
     }
 
     @Override

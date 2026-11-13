@@ -10,10 +10,11 @@ import net.minecraft.client.gui.components.ChatComponent;
 import java.util.Locale;
 
 /**
- * Estado da busca no chat (query/foco/pill) compartilhado entre os mixins
- * do ChatScreen (clique/teclado/desenho) e do EditBox (caracteres reais).
- * Morar num classe comum é necessário: mixim classes não podem expor
- * helpers estáticos públicos.
+ * Estado da busca no chat (query/foco) compartilhado entre o ChatScreen e
+ * o EditBox de pesquisa (padrão do Enhanced Chat: widget REAL do jogo,
+ * então acento/IME/caret/foco funcionam com o esquema vanilla).
+ * O filtro usa o visibleMessageFilter do próprio ChatComponent — a lista
+ * de exibição passa a conter SÓ as mensagens que batem na busca.
  */
 public final class ChatSearchState {
 
@@ -24,7 +25,8 @@ public final class ChatSearchState {
 
     public static String query = "";
     public static boolean focus;
-    public static int pillX, pillY, pillW, pillH;
+    private static boolean pending;
+    private static long lastApplyMs;
 
     private static ChatComponent chat() {
         Minecraft mc = Minecraft.getInstance();
@@ -47,60 +49,85 @@ public final class ChatSearchState {
         }
     }
 
-    /** aplica o filtro nativo (resultados ao vivo, sem Enter). */
+    /** chamado pelo responder do EditBox a cada caractere. */
+    public static void onQueryChanged(String value) {
+        query = value == null ? "" : value;
+        pending = true;
+    }
+
+    /** aplica o filtro (resultados ao vivo, sem Enter) com debounce leve —
+     *  recalcular 30k linhas por caractere engasga; Chelsea resetscroll junto. */
     public static void apply() {
+        pending = false;
+        lastApplyMs = System.currentTimeMillis();
         ChatComponent chat = chat();
         if (chat == null) {
             return;
         }
-        if (query.isBlank()) {
-            chat.setVisibleMessageFilter(null);
-            return;
+        try {
+            if (query.isBlank()) {
+                chat.setVisibleMessageFilter(null);
+                return;
+            }
+            String needle = query.toLowerCase(Locale.ROOT);
+            chat.setVisibleMessageFilter(
+                    m -> m.content().getString().toLowerCase(Locale.ROOT).contains(needle));
+            chat.resetChatScroll();
+        } catch (Throwable ignored) {
         }
-        String needle = query.toLowerCase(Locale.ROOT);
-        chat.setVisibleMessageFilter(m -> m.content().getString().toLowerCase(Locale.ROOT).contains(needle));
     }
 
-    /** chamado pelo ChatInputCharsMixin: consome o caractere quando a busca
-     *  tem foco (o texto NÃO entra no campo do chat). */
-    public static boolean tryChar(String cp) {
-        if (!focus || cp == null || cp.isEmpty()) {
-            return false;
+    /** drena as pendências (chamado no draw do ChatScreen, por frame). */
+    public static void drain() {
+        if (!pending) {
+            return;
         }
-        if (query.length() < 28) {
-            query += cp;
+        long now = System.currentTimeMillis();
+        // vazio aplica na hora (Esc/limpeza precisa desfiltra já), texto com
+        // debounce de 160ms — a digitação não deve custar um refresh por char
+        if (query.isEmpty() || now - lastApplyMs >= 160L) {
             apply();
         }
-        return true;
     }
 
     public static void clear() {
         query = "";
+        focus = false;
+        pending = false;
         apply();
+    }
+
+    public static void focus() {
+        focus = true;
+    }
+
+    public static void unfocus() {
         focus = false;
     }
 
-    /** pílula da busca (desenho + rect pro clique). */
-    public static void draw(GuiGraphicsExtractor g) {
+    private static int lastWidth = 140;
+
+    public static boolean hitBox(int screenH, double mx, double my) {
+        int y = screenH - 46;
+        return mx >= 4 && mx < 4 + Math.max(140, lastWidth) && my >= y - 2 && my < y + 18;
+    }
+
+    /** pill da busca (desenho e área de clique) — o texto é o do EditBox. */
+    public static void draw(GuiGraphicsExtractor g, String value) {
         Font f = AstucyFonts.menu();
         int h = g.guiHeight();
         int y = h - 46;
-        boolean has = !query.isEmpty();
-        String label;
-        if (focus || has) {
-            label = has ? query : "";
-        } else {
-            label = "Search - click to filter";
-        }
-        int w = Math.max(110, f.width(label) + 16);
-        pillX = 4;
-        pillY = y;
-        pillW = w;
-        pillH = 14;
-        Ui.rrect(g, 4, y, w, 14, 0xC8080A0D, 5);
-        g.text(f, label, 9, y + 3, has ? Ui.TEXT : 0x99FFFFFF, false);
-        if (focus && (System.currentTimeMillis() / 500L) % 2L == 0L) {
-            Ui.rect(g, 9 + f.width(label), y + 3, 1, f.lineHeight, 0xFFFFFFFF);
+        boolean has = value != null && !value.isEmpty();
+        String label = has ? value : (focus ? "" : "Search chat (Ctrl+F)");
+        int w = Math.max(136, f.width(label) + 28);
+        lastWidth = w;
+        Ui.rrect(g, 4, y, w, 16, focus ? 0xE60B0E14 : 0xCC080A0D, 6);
+        Ui.rframe(g, 4, y, w, 16, focus ? 0x5538C975 : 0x22FFFFFF, 6);
+        Ui.icon(g, "search", 9, y + 3, 10, focus ? 0xFF38C975 : 0x99FFFFFF);
+        g.text(f, label, 23, y + 4, has ? Ui.TEXT : 0x88FFFFFF, false);
+        boolean caret = focus && (System.currentTimeMillis() / 500L) % 2L == 0L;
+        if (caret) {
+            Ui.rect(g, 23 + f.width(label), y + 4, 1, f.lineHeight, 0xFF38C975);
         }
     }
 }

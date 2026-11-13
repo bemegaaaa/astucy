@@ -11,7 +11,7 @@ public enum ModuleCategory {
         return switch (this) {
             case COMBATE -> "Combat";
             case INFORMACAO -> "Info";
-            case VISAO -> "Vision";
+            case VISAO -> "Visuals";
             case UTILIDADE -> "Utility";
         };
     }

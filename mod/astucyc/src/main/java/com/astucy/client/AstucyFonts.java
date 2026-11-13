@@ -3,6 +3,8 @@ package com.astucy.client;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.textures.GpuSampler;
+import com.mojang.blaze3d.textures.GpuTexture;
+import com.mojang.blaze3d.textures.GpuTextureView;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GlyphSource;
@@ -16,9 +18,12 @@ import net.minecraft.network.chat.FontDescription;
 import net.minecraft.resources.Identifier;
 
 import java.lang.reflect.Field;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Fontes do cliente:
@@ -46,29 +51,61 @@ public final class AstucyFonts {
     private static Field samplerField;
     private static final Map<Identifier, Font> CACHE = new HashMap<>();
     private static final Map<Identifier, FontSet> SEEN = new HashMap<>();
-    private static final Map<FontSet, Long> SMOOTHED = new HashMap<>();
+    private static final Map<FontSet, Integer> SMOOTHED_COUNT = new HashMap<>();
+    private static final Set<GpuTextureView> LINEAR_VIEWS =
+            Collections.synchronizedSet(Collections.newSetFromMap(new IdentityHashMap<>()));
     private static boolean logged; 
 
     private AstucyFonts() {}
 
+    public static void markLinearView(GpuTextureView view) {
+        if (view != null) {
+            LINEAR_VIEWS.add(view);
+        }
+    }
+
     /**
-     * Fonte da interface (menus, cards, abas): Poppins 9px com oversample 8 —
-     * mesma métrica da vanilla, sem serrilhado. O HUD continua na vanilla.
+     * Retorna {@code true} se a view de textura pertence a um atlas de fonte
+     * TTF do Astucy (que deve ser amostrado com {@link FilterMode#LINEAR}).
+     */
+    public static boolean isLinearView(GpuTextureView view) {
+        if (view == null) {
+            return false;
+        }
+        if (LINEAR_VIEWS.contains(view)) {
+            return true;
+        }
+        try {
+            GpuTexture tex = view.texture();
+            if (tex != null) {
+                String label = tex.getLabel();
+                if (label != null && label.startsWith("astucy:")) {
+                    LINEAR_VIEWS.add(view);
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    /**
+     * Fonte da interface e do HUD (Montserrat Medium 9px com oversample 8 + LINEAR AA).
      */
     public static Font ui() {
         return fontFor(UI);
     }
 
     public static Font bold() {
-        return fontFor(UI);
+        return fontFor(MENU_BOLD);
     }
 
     public static Font mid() {
-        return fontFor(UI);
+        return fontFor(TITLE);
     }
 
     public static Font midBold() {
-        return fontFor(UI);
+        return fontFor(MENU_TITLE);
     }
 
     /** Wordmark (TTF 44px do tema); cai pra vanilla se o pack não existir. */
@@ -131,15 +168,15 @@ public final class AstucyFonts {
             if (set == null) {
                 return mc.font;
             }
-            smooth(set);
             Font cached = CACHE.get(id);
             if (cached == null || SEEN.get(id) != set) {
                 SEEN.put(id, set);
                 GlyphSource source = set.source(false);
                 EffectGlyph effect = set.whiteGlyph();
-                cached = new Font(new Provider(source, effect));
+                cached = new Font(new Provider(set, source, effect));
                 CACHE.put(id, cached);
             }
+            smooth(set);
             return cached;
         } catch (Throwable t) {
             return mc.font;
@@ -150,15 +187,9 @@ public final class AstucyFonts {
      * O atlas de fontes do Minecraft nasce com filtro NEAREST — com TTF isso
      * serrilha as bordas (o glifo é rasterizado em alta e reduzido no vizinho
      * mais próximo). Trocamos o sampler do atlas para LINEAR: as letras ganham
-     * antialiasing de verdade. Só toca nos atlas das nossas fontes.
+     * antialiasing de verdade sempre que uma página nova do atlas é criada.
      */
     private static void smooth(FontSet set) {
-        long now = System.currentTimeMillis();
-        Long last = SMOOTHED.get(set);
-        if (last != null && now - last < 120L) {
-            return;
-        }
-        SMOOTHED.put(set, now);
         try {
             if (stitcherField == null) {
                 stitcherField = FontSet.class.getDeclaredField("stitcher");
@@ -176,15 +207,24 @@ public final class AstucyFonts {
             if (textures == null || textures.isEmpty()) {
                 return;
             }
+            Integer prevCount = SMOOTHED_COUNT.get(set);
+            if (prevCount != null && prevCount == textures.size()) {
+                return;
+            }
             GpuSampler linear = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR);
             int n = 0;
             for (Object t : textures) {
-                if (t instanceof FontTexture) {
-                    samplerField.set(t, linear);
+                if (t instanceof FontTexture ft) {
+                    samplerField.set(ft, linear);
+                    GpuTextureView view = ft.getTextureView();
+                    if (view != null) {
+                        LINEAR_VIEWS.add(view);
+                    }
                     n++;
                 }
             }
-            if (!logged) {
+            SMOOTHED_COUNT.put(set, textures.size());
+            if (!logged && n > 0) {
                 logged = true;
                 System.out.println("[astucy] fontes: filtro LINEAR aplicado em " + n + " atlas");
             }
@@ -227,14 +267,16 @@ public final class AstucyFonts {
         }
     }
 
-    private record Provider(GlyphSource source, EffectGlyph effect) implements Font.Provider {
+    private record Provider(FontSet set, GlyphSource source, EffectGlyph effect) implements Font.Provider {
         @Override
         public GlyphSource glyphs(FontDescription description) {
+            smooth(set);
             return source;
         }
 
         @Override
         public EffectGlyph effect() {
+            smooth(set);
             return effect;
         }
     }

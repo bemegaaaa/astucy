@@ -237,7 +237,21 @@ pub fn catalog(force: bool) -> Result<Vec<CatalogEntry>, String> {
         return Err("manifest sem lista de versões".into());
     };
     let versions_root = mc_root().join("versions");
-    let mut out = Vec::with_capacity(list.len());
+    let mut out = Vec::with_capacity(list.len() + 1);
+    if horizon_available() {
+        let dir_263 = versions_root.join("26.3");
+        let res_ready = horizon_resources_dir()
+            .map(|d| d.join("horizon-resources.json").exists())
+            .unwrap_or(false);
+        out.push(CatalogEntry {
+            id: "26.3 (Rust)".to_string(),
+            kind: "release".to_string(),
+            released: "Horizon Rust Engine · 26.3".to_string(),
+            installed: res_ready
+                || (dir_263.join("26.3.json").exists() && dir_263.join("26.3.jar").exists()),
+            client: true,
+        });
+    }
     for v in list {
         let Some(id) = v.get("id").and_then(|s| s.as_str()) else {
             continue;
@@ -273,6 +287,11 @@ pub fn catalog(force: bool) -> Result<Vec<CatalogEntry>, String> {
 /// Baixa (se faltar) o JSON da versão e o jar do cliente direto da Mojang.
 /// Bibliotecas e assets continuam sendo verificados no launch, como antes.
 pub fn ensure_version(app: Option<&AppHandle>, id: &str) -> Result<(), String> {
+    let id = if id == "26.3 (Rust)" || id == "26.3-rust" {
+        "26.3"
+    } else {
+        id
+    };
     let dir = mc_root().join("versions").join(id);
     let json_path = dir.join(format!("{id}.json"));
     let jar_path = dir.join(format!("{id}.jar"));
@@ -858,6 +877,7 @@ pub struct UserSettings {
     pub ram: u32,
     pub res_w: u32,
     pub res_h: u32,
+    pub rust_engine: bool,
     jvm: Option<String>,
 }
 
@@ -866,6 +886,7 @@ fn load_user_settings() -> UserSettings {
         ram: 2560,
         res_w: 1280,
         res_h: 720,
+        rust_engine: true,
         jvm: None,
     };
     let Ok(base) = std::env::var("APPDATA") else {
@@ -895,6 +916,9 @@ fn load_user_settings() -> UserSettings {
             s.res_h = v as u32;
         }
     }
+    if let Some(v) = d.get("settings.rust_engine").and_then(|x| x.as_bool()) {
+        s.rust_engine = v;
+    }
     if let Some(j) = d.get("settings.jvm").and_then(|x| x.as_str()) {
         let clean = j.trim().to_string();
         if !clean.is_empty() {
@@ -902,6 +926,390 @@ fn load_user_settings() -> UserSettings {
         }
     }
     s
+}
+
+/* ================================================================
+ * Motor Rust (Horizon 26.3 — Astucy Native Rust Client)
+ * ================================================================ */
+
+pub fn horizon_root() -> Option<PathBuf> {
+    let local = std::env::var("LOCALAPPDATA").ok()?;
+    Some(Path::new(&local).join("astucy").join("horizon"))
+}
+
+pub fn horizon_dist_dir() -> Option<PathBuf> {
+    let dist = horizon_root()?.join("dist").join("horizon-windows-x64");
+    let dist_bin = dist.join("horizon-client.exe");
+    if dist_bin.exists() && dist.join("horizon-prepare.exe").exists() {
+        Some(dist)
+    } else {
+        None
+    }
+}
+
+pub fn horizon_resources_dir() -> Option<PathBuf> {
+    Some(horizon_root()?.join("resources").join("26.3"))
+}
+
+pub fn horizon_available() -> bool {
+    horizon_dist_dir().is_some()
+}
+
+/// Verifica silenciosamente a última release em `bemegaaaa/astucy` no GitHub e atualiza
+/// `horizon-client.exe`, `astucyc-0.1.0.jar` e `launcher.exe` quando houver tag nova.
+pub fn check_github_updates() -> Result<Option<String>, String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(6))
+        .user_agent(concat!("Astucy-Launcher/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|e| format!("http: {e}"))?;
+
+    let rel: Value = client
+        .get("https://api.github.com/repos/bemegaaaa/astucy/releases/latest")
+        .send()
+        .map_err(|e| format!("github: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("github status: {e}"))?
+        .json()
+        .map_err(|e| format!("github json: {e}"))?;
+
+    let tag = rel
+        .get("tag_name")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "tag ausente".to_string())?
+        .to_string();
+
+    let h_root = horizon_root().ok_or_else(|| "LOCALAPPDATA ausente".to_string())?;
+    let tag_file = h_root.join(".github-release-tag");
+    let current_tag = std::fs::read_to_string(&tag_file).unwrap_or_default();
+    if current_tag.trim() == tag {
+        return Ok(None);
+    }
+
+    let assets = rel
+        .get("assets")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let download_asset = |names: &[&str], dest: &Path, expect_pe: bool| -> Result<bool, String> {
+        let Some(url) = assets.iter().find_map(|a| {
+            let n = a.get("name").and_then(|v| v.as_str())?;
+            names
+                .iter()
+                .any(|cand| n.eq_ignore_ascii_case(cand))
+                .then(|| a.get("browser_download_url").and_then(|v| v.as_str()))
+                .flatten()
+        }) else {
+            return Ok(false);
+        };
+        let bytes = client
+            .get(url)
+            .send()
+            .map_err(|e| format!("download: {e}"))?
+            .error_for_status()
+            .map_err(|e| format!("download status: {e}"))?
+            .bytes()
+            .map_err(|e| format!("download bytes: {e}"))?;
+        if bytes.len() < 1024 || (expect_pe && !bytes.starts_with(b"MZ")) {
+            return Err("asset inválido".into());
+        }
+        if let Some(parent) = dest.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let tmp = dest.with_extension("tmp");
+        std::fs::write(&tmp, &bytes).map_err(|e| format!("gravar update: {e}"))?;
+        if std::fs::rename(&tmp, dest).is_err() {
+            let old = dest.with_extension("old");
+            let _ = std::fs::remove_file(&old);
+            if std::fs::rename(dest, &old).is_ok() {
+                std::fs::rename(&tmp, dest).map_err(|e| format!("substituir binário: {e}"))?;
+                let _ = std::fs::remove_file(&old);
+            } else {
+                let _ = std::fs::remove_file(&tmp);
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    };
+
+    let mut updated = false;
+    if let Some(dist) = horizon_dist_dir() {
+        if download_asset(
+            &["horizon-client.exe", "horizon-client-windows-x64.exe"],
+            &dist.join("horizon-client.exe"),
+            true,
+        )? {
+            updated = true;
+        }
+    }
+    if let Ok(mods_dir) = crate::profile::mods_dir()
+        && download_asset(&["astucyc-0.1.0.jar"], &mods_dir.join("astucyc-0.1.0.jar"), false)?
+    {
+        updated = true;
+    }
+    let tag_ver = tag.trim_start_matches(['v', 'V']);
+    if tag_ver != env!("CARGO_PKG_VERSION")
+        && let Ok(exe) = std::env::current_exe()
+        && download_asset(&["launcher.exe", "Astucy-Launcher.exe"], &exe, true)?
+    {
+        updated = true;
+    }
+
+    if updated {
+        let _ = std::fs::create_dir_all(&h_root);
+        let _ = std::fs::write(&tag_file, format!("{tag}\n"));
+        Ok(Some(tag))
+    } else {
+        Ok(None)
+    }
+}
+
+fn launch_horizon_rust(
+    app: Option<&AppHandle>,
+    nick: &str,
+    session: Option<&crate::auth::Session>,
+) -> Result<u32, String> {
+    let dist = horizon_dist_dir().ok_or_else(|| {
+        fail(
+            app,
+            "Motor Rust (Horizon 26.3) não encontrado em %LOCALAPPDATA%\\astucy\\horizon.",
+        )
+    })?;
+    let h_root = horizon_root().ok_or_else(|| fail(app, "LOCALAPPDATA não definido"))?;
+    let res_dir = h_root.join("resources").join("26.3");
+    let home_dir = h_root.join("home");
+    std::fs::create_dir_all(&res_dir).ok();
+    std::fs::create_dir_all(&home_dir).ok();
+
+    // Fast-path: if 26.3 + Horizon resources are already prepared on disk, skip slow checks & subprocesses!
+    let p = paths("26.3")?;
+    let ready_fast = res_dir.join("horizon-resources.json").exists()
+        && p.mc.join("versions/26.3/26.3.json").exists()
+        && p.mc.join("versions/26.3/26.3.jar").exists();
+
+    if !ready_fast {
+        stage(app, "motor rust", 0, 5, "verificando Minecraft 26.3");
+        ensure_version(app, "26.3")?;
+    }
+
+    // 2. Verificar se o bundle de recursos do Horizon já está pronto
+    let prepare_exe = dist.join("horizon-prepare.exe");
+    let check_ok = ready_fast
+        || (res_dir.join("horizon-resources.json").exists()
+            && std::process::Command::new(&prepare_exe)
+                .args(["--check", "--output"])
+                .arg(&res_dir)
+                .current_dir(&dist)
+                .creation_flags(CREATE_NO_WINDOW)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false));
+
+    if !check_ok {
+        let v = version_json(&p.mc, "26.3")?;
+        stage(app, "motor rust", 1, 5, "verificando bibliotecas 26.3");
+        let _ = resolve_libraries(&v, &p.mc.join("libraries"), &p.natives)?;
+
+        stage(app, "motor rust", 2, 5, "verificando assets 26.3");
+        let _ = ensure_assets(app, &v, &p.mc)?;
+
+        // 3. Baixar server-26.3.jar (exigido pelo horizon-prepare na 1ª execução)
+        let server_jar = h_root.join("server-26.3.jar");
+        if let Some(srv) = v.get("downloads").and_then(|d| d.get("server")) {
+            let url = srv.get("url").and_then(|s| s.as_str()).unwrap_or("");
+            let sha1 = srv.get("sha1").and_then(|s| s.as_str());
+            if !url.is_empty() {
+                stage(app, "motor rust", 3, 5, "verificando server-26.3.jar");
+                download_to(url, &server_jar, sha1)?;
+            }
+        }
+        if !server_jar.exists() {
+            return Err(fail(app, "server-26.3.jar ausente para preparar o Motor Rust."));
+        }
+
+        // Java 25 exigido pelos exporters do 26.3
+        let (java_exe, _) = pick_java(25)?;
+        let java_home = java_exe
+            .parent()
+            .and_then(|b| b.parent())
+            .map(|p| p.to_path_buf())
+            .unwrap_or_default();
+
+        stage(
+            app,
+            "motor rust",
+            4,
+            5,
+            "preparando recursos nativos 26.3 (1ª vez)…",
+        );
+        let mut prep_cmd = std::process::Command::new(&prepare_exe);
+        prep_cmd
+            .arg("--prepare")
+            .arg("--minecraft-dir")
+            .arg(&p.mc)
+            .arg("--server-jar")
+            .arg(&server_jar)
+            .arg("--output")
+            .arg(&res_dir)
+            .arg("--complete")
+            .arg("--progress")
+            .arg("json")
+            .current_dir(&dist)
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        if !java_home.as_os_str().is_empty() {
+            prep_cmd.arg("--java-home").arg(&java_home);
+            prep_cmd.env("JAVA_HOME", &java_home);
+        }
+        let mut prep_child = prep_cmd
+            .spawn()
+            .map_err(|e| fail(app, &format!("horizon-prepare: {e}")))?;
+
+        let mut last_err = String::new();
+        if let Some(out) = prep_child.stdout.take() {
+            use std::io::{BufRead, BufReader};
+            for line in BufReader::new(out).lines().map_while(Result::ok) {
+                if let Ok(j) = serde_json::from_str::<Value>(&line) {
+                    if let Some(msg) = j.get("message").and_then(|m| m.as_str()) {
+                        stage(app, "motor rust", 4, 5, msg);
+                    }
+                    if let Some(err) = j.get("error").and_then(|m| m.as_str()) {
+                        last_err = err.to_string();
+                    }
+                }
+            }
+        }
+        let status = prep_child
+            .wait()
+            .map_err(|e| fail(app, &format!("horizon-prepare wait: {e}")))?;
+        if !status.success() {
+            let detail = if !last_err.is_empty() {
+                last_err
+            } else {
+                format!("código {status}")
+            };
+            return Err(fail(
+                app,
+                &format!("Falha ao preparar recursos do Motor Rust: {detail}"),
+            ));
+        }
+    }
+
+    // 4. Iniciar horizon-client.exe (Astucy Client · Rust Engine 26.3)
+    stage(app, "motor rust", 5, 5, "iniciando Astucy Client (Rust)");
+    let client_exe = dist.join("horizon-client.exe");
+    expose_gpu(&client_exe);
+
+    let game_dir = p.mc.join("astucy-profile");
+    std::fs::create_dir_all(&game_dir).ok();
+    // Grava também horizon-player.txt para singleplayer/offline
+    let _ = std::fs::write(game_dir.join("horizon-player.txt"), format!("{nick}\n"));
+
+    let user = load_user_settings();
+    let mut argv: Vec<String> = vec![
+        "--resources".into(),
+        res_dir.to_string_lossy().into(),
+        "--game-dir".into(),
+        game_dir.to_string_lossy().into(),
+        "--home".into(),
+        home_dir.to_string_lossy().into(),
+        "--width".into(),
+        user.res_w.to_string(),
+        "--height".into(),
+        user.res_h.to_string(),
+    ];
+    if session.is_some() {
+        argv.push("--session-stdin".into());
+    } else {
+        argv.push("--name".into());
+        argv.push(nick.to_string());
+    }
+
+    let log_dir = p
+        .meta
+        .parent()
+        .map(|d| d.join("logs"))
+        .unwrap_or_else(|| p.meta.clone());
+    std::fs::create_dir_all(&log_dir).ok();
+    let log_path = log_dir.join(format!(
+        "launch-rust-26.3-{}.log",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    ));
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path);
+    let (out, err) = match &log_file {
+        Ok(f) => (
+            std::process::Stdio::from(f.try_clone().unwrap()),
+            std::process::Stdio::from(f.try_clone().unwrap()),
+        ),
+        Err(_) => (std::process::Stdio::null(), std::process::Stdio::null()),
+    };
+
+    let launcher_exe = std::env::current_exe().unwrap_or_default();
+    wait_previous_game();
+
+    let mut cmd = std::process::Command::new(&client_exe);
+    cmd.args(&argv)
+        .current_dir(&game_dir)
+        .env("ASTUCY_LAUNCHER", &launcher_exe)
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdin(if session.is_some() {
+            std::process::Stdio::piped()
+        } else {
+            std::process::Stdio::null()
+        })
+        .stdout(out)
+        .stderr(err);
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| fail(app, &format!("spawn horizon-client.exe: {e}")))?;
+
+    if let (Some(s), Some(mut stdin)) = (session, child.stdin.take()) {
+        use std::io::Write;
+        let payload = json!({
+            "name": s.name,
+            "uuid": s.uuid,
+            "access_token": s.access_token,
+            "user_type": "msa",
+            "xuid": s.xuid,
+        });
+        let _ = writeln!(stdin, "{payload}");
+    }
+
+    let pid = child.id();
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    if let Ok(Some(status)) = child.try_wait() {
+        return Err(fail(
+            app,
+            &format!(
+                "O Astucy Rust fechou ao abrir ({status}). Detalhes em {}",
+                log_path.display()
+            ),
+        ));
+    }
+    if let Ok(mut g) = GAME.lock() {
+        *g = Some(child);
+    }
+    verified_flush();
+    if let Some(app) = app {
+        let _ = app.emit(
+            "launch://done",
+            json!({ "pid": pid, "version": "26.3 (Rust)", "nick": nick, "log": log_path.display().to_string() }),
+        );
+    }
+    Ok(pid)
 }
 
 /// Escolhe o melhor Java: major >= 21 exigido (MC 26.x / Fabric), preferindo o mais novo.
@@ -926,6 +1334,15 @@ fn java_candidates_scan() -> Vec<(PathBuf, u32)> {
     if let Ok(home) = std::env::var("JAVA_HOME") {
         candidates.push(Path::new(&home).join("bin").join("javaw.exe"));
         candidates.push(Path::new(&home).join("bin").join("java.exe"));
+    }
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        let astucy_java = Path::new(&local).join("astucy").join("java");
+        if let Ok(entries) = std::fs::read_dir(&astucy_java) {
+            for e in entries.flatten() {
+                candidates.push(e.path().join("bin").join("javaw.exe"));
+                candidates.push(e.path().join("bin").join("java.exe"));
+            }
+        }
     }
     for root_var in ["PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"] {
         if let Ok(root) = std::env::var(root_var) {
@@ -995,18 +1412,86 @@ fn java_candidates_scan() -> Vec<(PathBuf, u32)> {
     out
 }
 
+fn download_temurin_jre(major: u32) -> Result<(PathBuf, u32), String> {
+    let local = std::env::var("LOCALAPPDATA")
+        .map_err(|_| "LOCALAPPDATA não definido para baixar Java".to_string())?;
+    let base = Path::new(&local).join("astucy").join("java");
+    let dest_dir = base.join(format!("jre-{major}"));
+    for exe_name in ["javaw.exe", "java.exe"] {
+        let existing = dest_dir.join("bin").join(exe_name);
+        if existing.exists()
+            && let Some(m) = java_major(&existing)
+        {
+            return Ok((existing, m));
+        }
+    }
+    std::fs::create_dir_all(&base).map_err(|e| format!("criar pasta java: {e}"))?;
+    let zip_path = base.join(format!("jre-{major}.zip"));
+    let url = format!(
+        "https://api.adoptium.net/v3/binary/latest/{major}/ga/windows/x64/jre/hotspot/normal/eclipse"
+    );
+    download_to(&url, &zip_path, None)
+        .map_err(|e| format!("falha ao baixar Java {major} automaticamente: {e}"))?;
+
+    let tmp_dir = base.join(format!("jre-{major}.tmp"));
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("pasta temp java: {e}"))?;
+    let file = std::fs::File::open(&zip_path).map_err(|e| format!("abrir zip java: {e}"))?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|e| format!("zip java inválido: {e}"))?;
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i).map_err(|e| format!("ler entrada zip java: {e}"))?;
+        let Some(rel) = entry.enclosed_name().map(|p| p.to_path_buf()) else {
+            continue;
+        };
+        // Remove o diretório raiz (ex.: jdk-25.0.1+8-jre/) para ficar direto em jre-{major}/bin/...
+        let mut comps = rel.components();
+        let _root = comps.next();
+        let stripped: PathBuf = comps.collect();
+        if stripped.as_os_str().is_empty() {
+            continue;
+        }
+        let out_path = tmp_dir.join(&stripped);
+        if entry.is_dir() {
+            let _ = std::fs::create_dir_all(&out_path);
+        } else {
+            if let Some(parent) = out_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let mut out_f = std::fs::File::create(&out_path)
+                .map_err(|e| format!("extrair {}: {e}", out_path.display()))?;
+            std::io::copy(&mut entry, &mut out_f)
+                .map_err(|e| format!("gravar {}: {e}", out_path.display()))?;
+        }
+    }
+    drop(zip);
+    let _ = std::fs::remove_file(&zip_path);
+    let _ = std::fs::remove_dir_all(&dest_dir);
+    std::fs::rename(&tmp_dir, &dest_dir).map_err(|e| format!("mover java {major}: {e}"))?;
+
+    if let Ok(mut guard) = JAVA_CACHE.lock() {
+        *guard = None;
+    }
+    for exe_name in ["javaw.exe", "java.exe"] {
+        let exe = dest_dir.join("bin").join(exe_name);
+        if exe.exists() {
+            let m = java_major(&exe).unwrap_or(major);
+            return Ok((exe, m));
+        }
+    }
+    Err(format!("Java {major} baixado, mas javaw.exe não encontrado"))
+}
+
 /// Escolhe o Java certo para a versão: Java 8 exato nas antigas (17+ quebra o
-/// LWJGL 2) e o mais novo disponível (≥ mínimo) nas modernas.
+/// LWJGL 2) e o mais novo disponível (≥ mínimo) nas modernas. Se faltar, baixa
+/// automaticamente o Temurin JRE necessário.
 fn pick_java(need: u32) -> Result<(PathBuf, u32), String> {
     let all = java_candidates();
-    if all.is_empty() {
-        return Err(format!(
-            "Nenhum Java encontrado. Instale o Temurin {need} (https://adoptium.net) e tente de novo."
-        ));
-    }
     if need <= 8 {
         if let Some(c) = all.iter().find(|(_, m)| *m == 8) {
             return Ok(c.clone());
+        }
+        if let Ok(downloaded) = download_temurin_jre(8) {
+            return Ok(downloaded);
         }
         if let Some(c) = all.first() {
             return Ok(c.clone());
@@ -1015,10 +1500,7 @@ fn pick_java(need: u32) -> Result<(PathBuf, u32), String> {
     if let Some(c) = all.iter().rev().find(|(_, m)| *m >= need) {
         return Ok(c.clone());
     }
-    Err(format!(
-        "Esta versão pede Java {need}+ e o mais novo aqui é Java {}. Instale o Temurin {need}.",
-        all.last().map(|(_, m)| *m).unwrap_or(0)
-    ))
+    download_temurin_jre(need)
 }
 
 /* ================================================================
@@ -1358,6 +1840,14 @@ fn launch_inner(
         return Err(fail(app, "Nick só pode ter letras, números e _"));
     }
 
+    // Motor Rust (Horizon 26.3 — Astucy Native Rust Client):
+    let use_rust = version == "26.3 (Rust)"
+        || version == "26.3-rust"
+        || (version == "26.3" && horizon_available() && load_user_settings().rust_engine);
+    if use_rust {
+        return launch_horizon_rust(app, nick, session.as_ref());
+    }
+
     // A versão pode não existir nesta máquina: baixa o JSON + jar da Mojang.
     ensure_version(app, version)?;
 
@@ -1580,10 +2070,15 @@ fn launch_inner(
         argv.push(user.res_h.to_string());
     }
 
-    // Perfil Fabric: pasta própria com mods + tema visual
+    // Perfil Fabric: pasta própria com mods por versão + tema visual
     if knot {
         let profile = p.mc.join("astucy-profile");
-        let _ = std::fs::create_dir_all(profile.join("mods"));
+        if let Ok(vmods) = crate::profile::mods_dir_for(&base_version) {
+            // Garante que o Fabric Loader carregue apenas os mods da versão atual
+            if let Some(idx) = argv.iter().position(|a| a == main_class) {
+                argv.insert(idx, format!("-Dfabric.modsFolder={}", vmods.display()));
+            }
+        }
         if let Err(e) = ensure_theme_pack(&profile) {
             eprintln!("[astucy] tema: {e}");
         }

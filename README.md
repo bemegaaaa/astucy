@@ -36,6 +36,10 @@ Copie o jar para o perfil:
 %APPDATA%\.minecraft\astucy-profile\mods\astucyc-0.1.0.jar
 ```
 
+> **Versões**: os módulos do Astucy (R-SHIFT, zoom, chat, HUD...) rodam em **26.x**
+> (desofuscado). Versões antigas (1.7.10, 1.8.9, 1.12...) abrem **vanilla** com o
+> launcher cuidando do Java certo, das libs/natives e da pasta de jogo separada.
+
 Durante o jogo:
 - `R-SHIFT` abre o menu do cliente (módulos, perfis, editor de HUD)
 - HUD editor: tecla dedicada + `TAB` alterna entre módulos

@@ -1,18 +1,16 @@
 package com.astucy.client.mixin;
 
-import com.astucy.client.AstucyFonts;
 import com.astucy.client.share.ChatSearchState;
 import com.astucy.client.share.MessageFeedback;
 import com.astucy.client.share.ScreenshotShare;
-import com.astucy.client.ui.Ui;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.components.ChatComponent;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.ChatScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
@@ -21,18 +19,20 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-import java.util.Locale;
-import java.util.function.Predicate;
-
 /**
- * Pesquisa no chat: um clique abre a busca, digitar JÁ FILTRA na medida
- * (os caracteres chegam pelo ChatInputCharsMixin — textinho real, com
- * acento e ABNT2), Esc fecha, Ctrl+F abre por teclado. A barra da print
- * (Copy image / Link) tem prioridade de clique, e CTRL+botão direito
- * copia a mensagem inteira sob o cursor.
+ * Pesquisa no chat (mecânica do Enhanced Chat, 557k downloads):
+ * um EditBox REAL adicionado à tela — acento/IME/backspace/paste via
+ * pipeline vanilla (o foco do teclado vai pra ele, o charTyped natural
+ * alimenta o responder). Um clique abre; Esc fecha e limpa; Ctrl+F ativa.
+ * O filtro é o visibleMessageFilter do vanilla sobre TODO o histórico.
  */
 @Mixin(value = ChatScreen.class, priority = 900)
 public abstract class ChatScreenSearchMixin extends Screen {
+
+    @Unique
+    private EditBox astucy$box;
+    @Unique
+    private boolean astucy$boxFocusedInThisScreen;
 
     protected ChatScreenSearchMixin() {
         super(null);
@@ -41,11 +41,27 @@ public abstract class ChatScreenSearchMixin extends Screen {
     @Inject(method = "init", at = @At("TAIL"))
     private void astucy$init(CallbackInfo ci) {
         ChatSearchState.clear();
+        this.astucy$box = new EditBox(this.font, 4, height - 46, 220, 12, Component.literal("Search"));
+        astucy$box.setMaxLength(28);
+        astucy$box.setBordered(false);
+        astucy$box.setVisible(false); // o desenho é nosso (a box é só o coletor)
+        astucy$box.setCanLoseFocus(false);
+        astucy$box.setResponder(ChatSearchState::onQueryChanged);
+        addRenderableWidget(astucy$box);
+        astucy$boxFocusedInThisScreen = false;
+    }
+
+    @Inject(method = "removed", at = @At("HEAD"))
+    private void astucy$removed(CallbackInfo ci) {
+        // fecha a tela = limpa a busca: nada de chat "vazio" voltando pro jogo
+        ChatSearchState.clear();
+        this.astucy$box = null;
+        astucy$boxFocusedInThisScreen = false;
     }
 
     /** UM clique abre a busca; cliques seguintes NÃO fecham (Esc fecha —
-     *  nada de perder a busca num clique descuidado). A barra da print
-     *  consome o seu próprio clique antes. */
+     *  nada de perder a busca num clique descuidado). A linha de ações da
+     *  print consome o seu próprio clique antes (ClickAction). */
     @Inject(method = "mouseClicked", at = @At("HEAD"), cancellable = true)
     private void astucy$clickOpen(MouseButtonEvent event, boolean dbl, CallbackInfoReturnable<Boolean> cir) {
         Minecraft mc = Minecraft.getInstance();
@@ -60,20 +76,49 @@ public abstract class ChatScreenSearchMixin extends Screen {
         if (event.button() != 0) {
             return;
         }
-        int mx = (int) Math.floor(event.x());
-        int my = (int) Math.floor(event.y());
+        // cliques nas linhas de ação da print ([Copy image] / [Link] no chat)
         if (ScreenshotShare.clickAction(mc, event.x(), event.y())) {
             cir.setReturnValue(true);
             return;
         }
-        if (!ChatSearchState.focus) {
-            // qualquer clique abre a busca (consumido pra não dar ação de link)
-            ChatSearchState.focus = true;
+        boolean onPill = ChatSearchState.hitBox(height, event.x(), event.y());
+        if (onPill) {
+            if (!astucy$boxFocusedInThisScreen) {
+                astucy$open();
+            }
             cir.setReturnValue(true);
             return;
         }
-        // já aberta: mantém o foco (sai com Esc ou fechando o chat)
-        cir.setReturnValue(true);
+        if (astucy$boxFocusedInThisScreen) {
+            // clicou fora da pílula de busca (ex: na barra de chat normal ou num link):
+            // tira o foco da busca mantendo o filtro ativo e deixa o ChatScreen processar o clique
+            astucy$close(false);
+        }
+    }
+
+    @Unique
+    private void astucy$open() {
+        ChatSearchState.focus();
+        astucy$boxFocusedInThisScreen = true;
+        if (astucy$box != null) {
+            astucy$box.setFocused(true);
+            astucy$box.setValue(ChatSearchState.query); // producer + responder
+            setFocused(astucy$box);
+        }
+    }
+
+    @Unique
+    private void astucy$close(boolean clear) {
+        ChatSearchState.unfocus();
+        if (clear) {
+            ChatSearchState.onQueryChanged("");
+            ChatSearchState.apply();
+        }
+        if (astucy$box != null) {
+            astucy$box.setFocused(false);
+        }
+        setFocused(null);
+        astucy$boxFocusedInThisScreen = false;
     }
 
     @Inject(method = "keyPressed", at = @At("HEAD"), cancellable = true)
@@ -81,36 +126,30 @@ public abstract class ChatScreenSearchMixin extends Screen {
         int key = event.key();
         boolean ctrl = (event.modifiers() & GLFW.GLFW_MOD_CONTROL) != 0;
         if (ctrl && key == GLFW.GLFW_KEY_F) {
-            ChatSearchState.focus = true;
+            astucy$open();
             cir.setReturnValue(true);
             return;
         }
-        if (!ChatSearchState.focus) {
+        if (!astucy$boxFocusedInThisScreen) {
             return;
         }
         if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER || key == GLFW.GLFW_KEY_TAB) {
-            ChatSearchState.focus = false;
+            astucy$close(false);
             cir.setReturnValue(true);
             return;
         }
         if (key == GLFW.GLFW_KEY_ESCAPE) {
-            ChatSearchState.clear();
-            cir.setReturnValue(true);
-            return;
-        }
-        if (key == GLFW.GLFW_KEY_BACKSPACE) {
-            if (!ChatSearchState.query.isEmpty()) {
-                ChatSearchState.query = ChatSearchState.query.substring(0, ChatSearchState.query.length() - 1);
-                ChatSearchState.apply();
-            }
+            astucy$close(true);
             cir.setReturnValue(true);
         }
-        // caracteres imprimíveis chegam pelo ChatInputCharsMixin (charTyped)
+        // backspace/letras: o EditBox focado (child) recebe antes de nós
     }
 
     @Inject(method = "extractRenderState", at = @At("TAIL"), require = 0, expect = 0)
     private void astucy$draw(GuiGraphicsExtractor g, int mouseX, int mouseY, float partial, CallbackInfo ci) {
-        ChatSearchState.draw(g);
+        ChatSearchState.drain();
+        ChatSearchState.draw(g, astucy$box == null ? ChatSearchState.query : astucy$box.getValue());
         MessageFeedback.draw(g);
     }
+
 }

@@ -69,7 +69,16 @@ public final class Ui {
 
     /** Contorno suave 1px (anel anti-alias); fallback pixel se sem textura. */
     public static void rframe(GuiGraphicsExtractor g, int x, int y, int w, int h, int color) {
-        if (Skin.ok() && Skin.outline(g, x, y, w, h, color)) {
+        rframe(g, x, y, w, h, color, 10);
+    }
+
+    public static void rframe(GuiGraphicsExtractor g, int x, int y, int w, int h, int color, int radius) {
+        // visual sem bordas: contornos neutros (cinza/branco translúcido) não são
+        // desenhados — só acentos coloridos (verde/vermelho) ou brancos sólidos.
+        if (isNeutralFaint(color)) {
+            return;
+        }
+        if (Skin.ok() && Skin.outline(g, x, y, w, h, color, radius)) {
             return;
         }
         if (w < 8 || h < 8) {
@@ -80,6 +89,16 @@ public final class Ui {
         rect(g, x + 2, y + h - 1, w - 4, 1, color);
         rect(g, x, y + 2, 1, h - 4, color);
         rect(g, x + w - 1, y + 2, 1, h - 4, color);
+    }
+
+    /** Cor neutra (r≈g≈b) e translúcida: é a "borda cinza" que não queremos. */
+    private static boolean isNeutralFaint(int color) {
+        int a = (color >>> 24) & 0xFF;
+        int r = (color >>> 16) & 0xFF;
+        int gr = (color >>> 8) & 0xFF;
+        int b = color & 0xFF;
+        int spread = Math.max(r, Math.max(gr, b)) - Math.min(r, Math.min(gr, b));
+        return spread < 24 && a < 0xC0;
     }
 
     public static void hline(GuiGraphicsExtractor g, int x, int y, int w, int color) {
@@ -155,14 +174,13 @@ public final class Ui {
      * tudo gerado por nós
      * ------------------------------------------------------------------ */
 
-    /** Painel glassmorphism: sombra externa, vidro, sheen de topo e rim. */
+    /** Painel glassmorphism: sombra externa, vidro escuro translúcido e anel anti-alias sutil. */
     public static boolean glass(GuiGraphicsExtractor g, int x, int y, int w, int h) {
-        // sombra externa suave (camadas)
         for (int i = 4; i >= 1; i--) {
-            rrect(g, x - i * 2, y - i * 2 + 3, w + i * 4, h + i * 4, 0x04000000);
+            rrect(g, x - i * 2, y - i * 2 + 3, w + i * 4, h + i * 4, 0x06000000, 12);
         }
-        // vidro preto translucido (o blur do mundo aparece por baixo)
-        rrect(g, x, y, w, h, 0xA6000000);
+        rrect(g, x, y, w, h, 0xCC0A0D12, 10);
+        rframe(g, x, y, w, h, 0x1EFFFFFF, 10);
         return true;
     }
 
@@ -176,16 +194,15 @@ public final class Ui {
         return (aa << 24) | (ar << 16) | (ag << 8) | ab;
     }
 
-    /** Botão de estado em degradê (verde ligado / vermelho desligado). */
+    /** Botão de estado em degradê (verde ligado / escuro desligado). */
     public static void stateBtn(GuiGraphicsExtractor g, Font f, int x, int y, int w, int h,
                                 String label, boolean on) {
         boolean ok = on
-                ? Skin.boxGrad(g, x, y, w, h, 0xFF41B357, 0xFF2C8F42)
-                : Skin.boxGrad(g, x, y, w, h, 0xFFD95A64, 0xFFBE414C);
+                ? Skin.boxGrad(g, x, y, w, h, 0xFF38C975, 0xFF259A56, 6)
+                : Skin.boxGrad(g, x, y, w, h, 0xFF232730, 0xFF191C23, 6);
         if (!ok) {
-            rrect(g, x, y, w, h, on ? GREEN : RED);
+            rrect(g, x, y, w, h, on ? GREEN : 0xFF1F232B, 6);
         }
-        rect(g, x + 2, y, w - 4, 1, 0x18FFFFFF);
         ctext(g, f, label, x + w / 2, y + (h - f.lineHeight) / 2 + 1, 0xFFFFFFFF);
     }
 
@@ -193,80 +210,87 @@ public final class Ui {
     public static void stateBtnAnim(GuiGraphicsExtractor g, Font f, int x, int y, int w, int h,
                                     String off, String on, float t) {
         float k = Math.max(0f, Math.min(1f, t));
-        int top = mix(0xFFD95A64, 0xFF41B357, k);
-        int bot = mix(0xFFBE414C, 0xFF2C8F42, k);
-        if (!Skin.boxGrad(g, x, y, w, h, top, bot)) {
-            rrect(g, x, y, w, h, k > 0.5f ? GREEN : RED);
+        int top = mix(0xFF232730, 0xFF38C975, k);
+        int bot = mix(0xFF191C23, 0xFF259A56, k);
+        if (!Skin.boxGrad(g, x, y, w, h, top, bot, 6)) {
+            rrect(g, x, y, w, h, k > 0.5f ? GREEN : 0xFF1F232B, 6);
         }
-        rect(g, x + 2, y, w - 4, 1, 0x18FFFFFF);
         ctext(g, f, k > 0.5f ? on : off, x + w / 2, y + (h - f.lineHeight) / 2 + 1, 0xFFFFFFFF);
     }
 
     /** Botão azul de ação (EDIT HUD / salvar). */
     public static void blueBtn(GuiGraphicsExtractor g, Font f, int x, int y, int w, int h, String label) {
-        boolean ok = Skin.boxGrad(g, x, y, w, h, 0xFF4B8DF5, 0xFF3571E0);
+        boolean ok = Skin.boxGrad(g, x, y, w, h, 0xFF4B8DF5, 0xFF3571E0, 6);
         if (!ok) {
-            rrect(g, x, y, w, h, BLUE);
+            rrect(g, x, y, w, h, BLUE, 6);
         }
         ctext(g, f, label, x + w / 2, y + (h - f.lineHeight) / 2 + 1, 0xFFFFFFFF);
     }
 
-    /** Toggle deslizante (trilho colorido + knob branco, anim 0..1). */
+    /** Toggle deslizante moderno (trilho escuro profundo → esmeralda vibrante + knob anti-alias, anim 0..1). */
     public static void toggle(GuiGraphicsExtractor g, int x, int y, int w, int h,
                               boolean on, float anim) {
-        // cor E knob animam juntos: nada de "estalo" ao alternar
         float a = Math.max(0f, Math.min(1f, anim));
-        int top = mix(0xFFD95A64, 0xFF41B357, a);
-        int bot = mix(0xFFBE414C, 0xFF2C8F42, a);
-        if (!Skin.boxGrad(g, x, y, w, h, top, bot)) {
-            rrect(g, x, y, w, h, mix(RED, GREEN, a));
+        int top = mix(0xFF07090E, 0xFF22C55E, a);
+        int bot = mix(0xFF05070B, 0xFF16A34A, a);
+        int r = Math.max(2, h / 2);
+        if (!Skin.boxGrad(g, x, y, w, h, top, bot, r)) {
+            rrect(g, x, y, w, h, mix(0xFF06080C, 0xFF22C55E, a), r);
+        }
+        if (a < 0.85f) {
+            rframe(g, x, y, w, h, mix(0x28FFFFFF, 0x00FFFFFF, a), r);
         }
         int knob = h - 4;
         int kx = x + 2 + Math.round((w - 4 - knob) * a);
-        if (!Skin.disc(g, kx, y + 2, knob, 0xFFFFFFFF)) {
-            rect(g, kx, y + 2, knob, knob, WHITE);
+        int knobCol = mix(0xFF7B8798, 0xFFFFFFFF, a);
+        if (!Skin.disc(g, kx, y + 2, knob, knobCol)) {
+            rrect(g, kx, y + 2, knob, knob, knobCol, knob / 2);
         }
     }
 
-    /** Slider com knob azul. */
+    /** Slider com knob suave. */
     public static void sliderV2(GuiGraphicsExtractor g, int x, int y, int w, float frac) {
         sliderV3(g, x, y, w, frac, 0f);
     }
 
-    /** Slider fino: trilho de 2px e knob pequeno (nada de barra gorda). */
     /**
-     * Slider do menu: trilha de 2px + knob QUADRADO (barra vertical de 3px).
-     * Sem círculo, sem halo, sem borda — e o knob fica exatamente na posição
-     * do preenchimento (era isso que parecia "fora" antes).
+     * Slider moderno: trilha arredondada de 4px + preenchimento iluminado +
+     * knob circular anti-alias com halo suave no hover/drag.
      */
     public static void sliderV3(GuiGraphicsExtractor g, int x, int y, int w, float frac, float glow) {
         float f = Math.max(0f, Math.min(1f, frac));
         float gl = Math.max(0f, Math.min(1f, glow));
-        int ty = y + 6;
+        int ty = y + 5;
 
-        // poço + trilha (dá profundidade sem borda)
-        rect(g, x, ty - 1, w, 4, 0x22000000);
-        rect(g, x, ty, w, 2, 0x2AFFFFFF);
+        // trilha arredondada
+        rrect(g, x, ty, w, 4, 0x26FFFFFF, 2);
 
-        // preenchimento
-        int fill = Math.max(2, Math.round(w * f));
-        rect(g, x, ty, fill, 2, mix(0xB8FFFFFF, 0xFF6FE3A2, gl));
+        // preenchimento suave
+        int fill = Math.max(4, Math.round(w * f));
+        int fillCol = mix(0xFFE2E8F0, 0xFF5CE69B, gl);
+        rrect(g, x, ty, fill, 4, fillCol, 2);
 
-        // knob quadrado: barra de 4px com topo iluminado
+        // knob circular anti-alias com halo sutil no hover/drag
         int kc = x + Math.round(w * f);
-        int kh = 14;
-        int top = ty + 1 - kh / 2;
-        rect(g, kc - 2, top, 4, kh, mix(0xFFFFFFFF, 0xFF8FF0BC, gl));
-        rect(g, kc - 2, top, 4, 1, 0xFFFFFFFF);
-        rect(g, kc - 2, top, 1, kh, 0x59FFFFFF);
+        int cy = ty + 2;
+        if (gl > 0.05f) {
+            int haloA = Math.round(0x38 * gl);
+            Skin.disc(g, kc - 7, cy - 7, 14, (haloA << 24) | 0x5CE69B);
+        }
+        int ks = 10;
+        if (!Skin.disc(g, kc - ks / 2, cy - ks / 2, ks, 0xFFFFFFFF)) {
+            rrect(g, kc - 4, cy - 4, 8, 8, 0xFFFFFFFF, 4);
+        }
     }
 
-    /** Tooltip escura flutuante. */
+    /** Tooltip escura flutuante com borda anti-alias. */
     public static void tooltip(GuiGraphicsExtractor g, Font f, int x, int y, String text) {
         int w = f.width(text) + 16;
         int h = f.lineHeight + 10;
-        rrect(g, x, y, w, h, 0xF2232A33);
-        g.text(f, text, x + 8, y + 5, 0xFFE4E9EE, false);
+        rrect(g, x - 1, y + 1, w + 2, h + 2, 0x38000000, 6);
+        rrect(g, x, y, w, h, 0xF412161D, 6);
+        rframe(g, x, y, w, h, 0x28FFFFFF, 6);
+        g.text(f, text, x + 8, y + 5, 0xFFECEFF4, false);
     }
 
     /**
@@ -334,10 +358,14 @@ public final class Ui {
         rrect(g, kx - 2, y + 1, 5, 8, WHITE);
     }
 
-    /** Swatch de cor; devolve a largura avançada. */
+    /** Swatch de cor arredondado anti-alias; devolve a largura avançada. */
     public static int swatch(GuiGraphicsExtractor g, int x, int y, int size, int color, boolean selected) {
-        rect(g, x, y, size, size, color);
-        frame(g, x, y, size, size, selected ? WHITE : 0x66FFFFFF);
+        rrect(g, x, y, size, size, color, 4);
+        if (selected) {
+            rframe(g, x - 1, y - 1, size + 2, size + 2, WHITE, 5);
+        } else {
+            rframe(g, x, y, size, size, 0x38FFFFFF, 4);
+        }
         return size + 3;
     }
 

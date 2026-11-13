@@ -78,6 +78,26 @@ public class HudEditorScreen extends Screen {
         if (dragging && sel != null && mx > -900 && width > 0 && height > 0) {
             double nx = clamp01(sel.anchorX + (x - mx) / width);
             double ny = clamp01(sel.anchorY + (y - my) / height);
+            boolean shift = false;
+            try {
+                long win = Minecraft.getInstance().getWindow().handle();
+                shift = GLFW.glfwGetKey(win, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS
+                        || GLFW.glfwGetKey(win, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
+            } catch (Throwable ignored) {
+            }
+            if (!shift) {
+                Font hud = com.astucy.client.AstucyFonts.ui();
+                int[] sz = Modules.chipSize(hud, sel, previewLabel(sel));
+                int offX = Modules.drawOffsetX(sel, sz[0]);
+                double centerPxX = nx * width + offX + sz[0] / 2.0;
+                double centerPxY = ny * height + sz[1] / 2.0;
+                if (Math.abs(centerPxX - width / 2.0) <= 4.0) {
+                    nx = clamp01((width / 2.0 - offX - sz[0] / 2.0) / width);
+                }
+                if (Math.abs(centerPxY - height / 2.0) <= 4.0) {
+                    ny = clamp01((height / 2.0 - sz[1] / 2.0) / height);
+                }
+            }
             sel.anchorX = nx;
             sel.anchorY = ny;
         }
@@ -136,7 +156,7 @@ public class HudEditorScreen extends Screen {
     /** Roda do mouse sobre um chip muda a escala na hora (SHIFT = só a altura). */
     @Override
     public boolean mouseScrolled(double x, double y, double dX, double dY) {
-        Font font = Minecraft.getInstance().font;
+        Font font = com.astucy.client.AstucyFonts.ui();
         Module m = chipAt(font, x, y);
         if (m != null) {
             sel = m;
@@ -156,7 +176,7 @@ public class HudEditorScreen extends Screen {
     public boolean mouseClicked(MouseButtonEvent event, boolean dbl) {
         this.mx = event.x();
         this.my = event.y();
-        Font font = Minecraft.getInstance().font;
+        Font font = com.astucy.client.AstucyFonts.ui();
         Minecraft mc = Minecraft.getInstance();
         // botão do rodapé → volta pro menu
         int bx = this.width / 2 - 65;
@@ -167,7 +187,7 @@ public class HudEditorScreen extends Screen {
             return true;
         }
         // alças de redimensionar (pílula no topo e embaixo do selecionado)
-        Font hud = Minecraft.getInstance().font;
+        Font hud = com.astucy.client.AstucyFonts.ui();
         if (sel != null) {
             int[] box = hitBox(hud, sel);
             int[][] hs = resizeHandles(box);
@@ -402,8 +422,7 @@ public class HudEditorScreen extends Screen {
         Modules.preview = true;
         Font font = com.astucy.client.AstucyFonts.ui();
         Minecraft mc = Minecraft.getInstance();
-        // chips na fonte vanilla (igual ao HUD do jogo); chrome do editor segue DM Sans
-        Font hud = mc.font;
+        Font hud = com.astucy.client.AstucyFonts.ui();
         int gw = g.guiWidth();
         int gh = g.guiHeight();
 
@@ -469,16 +488,20 @@ public class HudEditorScreen extends Screen {
 
         if (sel != null) {
             int[] r = hitBox(hud, sel);
-            Ui.frame(g, r[0] - 2, r[1] - 2, r[2] - r[0] + 4, r[3] - r[1] + 4, Ui.WHITE);
+            Ui.rframe(g, r[0] - 2, r[1] - 2, r[2] - r[0] + 4, r[3] - r[1] + 4, 0xCC38C975, 6);
             for (int[] hs : resizeHandles(r)) {
                 boolean hov = mx >= hs[0] - 2 && mx < hs[0] + hs[2] + 2
                         && my >= hs[1] - 3 && my < hs[1] + hs[3] + 3;
                 drawResizeHandle(g, hs, hov);
             }
             boolean sameRatio = Math.abs(sel.scaleY - sel.scale) <= 0.011;
-            g.text(font, sel.name + "   " + Math.round(sel.scale * 100) + "%"
-                            + (sameRatio ? "" : "  H " + Math.round(sel.scaleY * 100) + "%"),
-                    r[0] - 2, r[1] - 17, Ui.WHITE, false);
+            String badge = sel.name + "  " + Math.round(sel.scale * 100) + "%"
+                    + (sameRatio ? "" : " · H " + Math.round(sel.scaleY * 100) + "%");
+            int bw = font.width(badge) + 10;
+            int bx = r[0] - 2;
+            int by = Math.max(4, r[1] - 19);
+            Ui.rrect(g, bx, by, bw, 14, 0xCC0A0D12, 5);
+            g.text(font, badge, bx + 5, by + 3, Ui.GREEN, false);
         }
     }
 }

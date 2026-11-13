@@ -7,10 +7,101 @@ fn profile_root() -> Result<PathBuf, String> {
     Ok(Path::new(&appdata).join(".minecraft").join("astucy-profile"))
 }
 
-fn mods_dir() -> Result<PathBuf, String> {
+pub(crate) fn mods_dir() -> Result<PathBuf, String> {
     let d = profile_root()?.join("mods");
     std::fs::create_dir_all(&d).map_err(|e| format!("pasta de mods: {e}"))?;
     Ok(d)
+}
+
+pub fn mods_dir_for(version: &str) -> Result<PathBuf, String> {
+    let base = mods_dir()?;
+    let ver = version.trim();
+    if ver.is_empty() {
+        return Ok(base);
+    }
+    let safe: String = ver
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' })
+        .collect();
+    let d = base.join(&safe);
+    let newly_created = !d.exists();
+    std::fs::create_dir_all(&d).map_err(|e| format!("pasta de mods: {e}"))?;
+    // Migra .jars antigos da raiz apenas para a pasta 26.2 na primeira vez.
+    if newly_created && safe == "26.2" && let Ok(entries) = std::fs::read_dir(&base) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_file() {
+                let name = e.file_name().to_string_lossy().to_string();
+                let lower = name.to_ascii_lowercase();
+                if lower.ends_with(".jar") || lower.ends_with(".jar.disabled") {
+                    let _ = std::fs::rename(&p, d.join(&name));
+                }
+            }
+        }
+    }
+    Ok(d)
+}
+
+pub fn rust_addon_enabled(id: &str, default_on: bool) -> bool {
+    let Ok(root) = profile_root() else { return default_on; };
+    let data = read_json(&root.join("astucy-rust.json"));
+    let idx = data.get("active_profile").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    data.get("profiles")
+        .and_then(|p| p.get(idx))
+        .and_then(|arr| arr.as_array())
+        .and_then(|arr| arr.iter().find(|m| m.get("id").and_then(|v| v.as_str()) == Some(id)))
+        .and_then(|m| m.get("enabled").and_then(|v| v.as_bool()))
+        .unwrap_or(default_on)
+}
+
+pub fn set_rust_addon_enabled(id: &str, on: bool) -> Result<(), String> {
+    let root = profile_root()?;
+    std::fs::create_dir_all(&root).map_err(|e| format!("perfil: {e}"))?;
+    let path = root.join("astucy-rust.json");
+    let mut data = read_json(&path);
+    if !data.is_object() || data.get("version").and_then(|v| v.as_u64()) != Some(2) {
+        data = serde_json::json!({
+            "version": 2,
+            "active_profile": 0,
+            "profiles": [[], [], []],
+            "crosshair_invert": true,
+            "light_mode": false
+        });
+    }
+    let idx = data.get("active_profile").and_then(|v| v.as_u64()).unwrap_or(0).min(2) as usize;
+    let profiles = data
+        .as_object_mut()
+        .and_then(|o| o.get_mut("profiles"))
+        .and_then(|p| p.as_array_mut())
+        .ok_or_else(|| "astucy-rust.json inválido".to_string())?;
+    while profiles.len() < 3 {
+        profiles.push(serde_json::json!([]));
+    }
+    if !profiles[idx].is_array() {
+        profiles[idx] = serde_json::json!([]);
+    }
+    let arr = profiles[idx].as_array_mut().unwrap();
+    if let Some(entry) = arr.iter_mut().find(|m| m.get("id").and_then(|v| v.as_str()) == Some(id)) {
+        if let Some(obj) = entry.as_object_mut() {
+            obj.insert("enabled".into(), serde_json::Value::Bool(on));
+        }
+    } else {
+        arr.push(serde_json::json!({
+            "id": id,
+            "enabled": on,
+            "anchor": [0.5, 0.5],
+            "scale": 1.0,
+            "bg": true,
+            "bg_opacity": 0.45,
+            "bg_rgb": 0,
+            "fg_rgb": 15527923,
+            "shadow": false,
+            "show_prefix": true,
+            "level": 0.5
+        }));
+    }
+    let text = serde_json::to_string_pretty(&data).map_err(|e| format!("serializar: {e}"))?;
+    std::fs::write(&path, text).map_err(|e| format!("gravar: {e}"))
 }
 
 fn config_file() -> Result<PathBuf, String> {
@@ -23,49 +114,69 @@ fn config_file() -> Result<PathBuf, String> {
  * auto-update do módulo do próprio Astucy
  * ================================================================== */
 
-/// Mantém o `astucyc-0.1.0.jar` do perfil na MESMA build publicada na release:
-/// compara o tamanho com o asset anônimo da release e sobrescreve quando
-/// difere (best-effort antes de cada partida — o jogo não trava se falhar).
+const BUNDLED_CORE_MOD: &[u8] =
+    include_bytes!("../../../mod/astucyc/build/libs/astucyc-0.1.0.jar");
+
+/// Localiza `mod/astucyc/build/libs/astucyc-0.1.0.jar` no workspace se existir.
+fn find_workspace_core_mod() -> Option<PathBuf> {
+    let rel = Path::new("mod")
+        .join("astucyc")
+        .join("build")
+        .join("libs")
+        .join("astucyc-0.1.0.jar");
+    for start in [
+        std::env::current_exe().ok(),
+        std::env::current_dir().ok(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let mut cur: Option<&Path> = Some(start.as_path());
+        while let Some(dir) = cur {
+            let candidate = dir.join(&rel);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+            cur = dir.parent();
+        }
+    }
+    None
+}
+
+/// Mantém o `astucyc-0.1.0.jar` do perfil sincronizado com a build local/embutida
+/// mais recente (sem sobrescrever com release antiga do GitHub).
 pub fn sync_core_mod() -> Result<(), String> {
-    const CORE_URL: &str =
-        "https://github.com/bemegaaaa/astucy/releases/download/v0.1.0/astucyc-0.1.0.jar";
     const CORE_NAME: &str = "astucyc-0.1.0.jar";
 
     let dir = mods_dir()?;
     let dest = dir.join(CORE_NAME);
-    let client = http_client()?;
 
-    let head = client
-        .head(CORE_URL)
-        .send()
-        .and_then(|r| r.error_for_status())
-        .map_err(|e| format!("verificar {CORE_NAME}: {e}"))?;
-    let remote = head
-        .headers()
-        .get("content-length")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(0);
-    if remote == 0 {
-        return Ok(()); // release sem o asset — mantém o jar local
-    }
-    let local = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
-    if local == remote {
-        return Ok(()); // mesma build, nada a fazer
+    let fresh_bytes: Option<Vec<u8>> = find_workspace_core_mod()
+        .and_then(|p| std::fs::read(p).ok())
+        .or_else(|| {
+            if !BUNDLED_CORE_MOD.is_empty() {
+                Some(BUNDLED_CORE_MOD.to_vec())
+            } else {
+                None
+            }
+        });
+
+    if let Some(bytes) = fresh_bytes {
+        let same = std::fs::read(&dest)
+            .map(|existing| existing == bytes)
+            .unwrap_or(false);
+        if same {
+            return Ok(());
+        }
+        let tmp = dir.join(".astucyc-update.jar");
+        std::fs::write(&tmp, &bytes).map_err(|e| format!("gravar mod: {e}"))?;
+        if std::fs::rename(&tmp, &dest).is_err() {
+            let _ = std::fs::remove_file(&dest);
+            std::fs::rename(&tmp, &dest).map_err(|e| format!("instalar mod: {e}"))?;
+        }
+        return Ok(());
     }
 
-    let bytes = client
-        .get(CORE_URL)
-        .send()
-        .and_then(|r| r.error_for_status())
-        .and_then(|r| r.bytes())
-        .map_err(|e| format!("baixar {CORE_NAME}: {e}"))?;
-    let tmp = dir.join(".astucyc-update.jar");
-    std::fs::write(&tmp, &bytes).map_err(|e| format!("gravar mod: {e}"))?;
-    if std::fs::rename(&tmp, &dest).is_err() {
-        std::fs::remove_file(&dest).map_err(|e| format!("remover mod antigo: {e}"))?;
-        std::fs::rename(&tmp, &dest).map_err(|e| format!("instalar mod: {e}"))?;
-    }
     Ok(())
 }
 
@@ -195,11 +306,12 @@ pub fn open_mods_folder() -> Result<String, String> {
  * ================================================================== */
 
 /// Ids reais do mod (Modules.java). Só esses podem ser alternados.
-const CLIENT_MODULES: [&str; 32] = [
+const CLIENT_MODULES: &[&str] = &[
     "fps", "ping", "server", "memory", "speed", "direcao", "sessao", "hora", "bioma", "coords",
     "efeitos", "cps", "keystrokes", "reach", "totem", "armor", "fullbright", "zoom", "hurtcam",
     "sprint", "sneak", "itens", "pack", "health", "hunger", "combo", "healthtag",
-    "target", "armordur", "daycounter", "itemcount", "viewmodel",
+    "target", "armordur", "daycounter", "itemcount", "viewmodel", "crosshair",
+    "blur", "speedfx", "ambience", "menublur", "chat", "watermark", "fpsgraph", "realtime",
 ];
 
 #[derive(Serialize)]
@@ -414,7 +526,7 @@ pub fn install_mods_sync(version: &str, slugs: &[String]) -> Result<Vec<InstallR
         return Err("escolha uma versão antes de instalar".into());
     }
     let client = http_client()?;
-    let dir = mods_dir()?;
+    let dir = mods_dir_for(version)?;
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
     let mut done_files = std::collections::HashSet::new();

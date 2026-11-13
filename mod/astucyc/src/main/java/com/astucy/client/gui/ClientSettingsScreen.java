@@ -435,9 +435,13 @@ public final class ClientSettingsScreen extends Screen {
             scroll = scrollTarget;
         }
 
-        // painel
+        // fundo desfocado + painel glass
+        try {
+            g.blurBeforeThisStratum();
+        } catch (IllegalStateException ignored) {
+        }
+        Ui.rect(g, 0, 0, width, height, 0x4D000000);
         Ui.glass(g, x0, y0, pw, ph);
-        Ui.hline(g, x0 + 2, y0 + 46, pw - 4, 0x14FFFFFF);
 
         // cabeçalho
         Ui.spaced(g, AstucyFonts.brand(), "ASTUCY", x0 + 18,
@@ -445,11 +449,13 @@ public final class ClientSettingsScreen extends Screen {
         String sub = "CLIENT SETTINGS";
         g.text(AstucyFonts.ui8(), sub,
                 x0 + 18 + Ui.spacedWidth(AstucyFonts.brand(), "ASTUCY", 2) + 10,
-                y0 + 20, 0x669AA2AB, false);
+                y0 + 20, 0xFF6FE3A2, false);
 
         boolean closeHover = inside((int) mx, (int) my, x0 + pw - 26, y0 + 10, 18, 18);
         Ui.rrect(g, x0 + pw - 26, y0 + 10, 18, 18,
-                closeHover ? 0x3AFFFFFF : 0x1EFFFFFF);
+                closeHover ? 0x38E25661 : 0x18FFFFFF, 6);
+        Ui.rframe(g, x0 + pw - 26, y0 + 10, 18, 18,
+                closeHover ? 0x88E25661 : 0x22FFFFFF, 6);
         Ui.ctext(g, f, "X", x0 + pw - 17, y0 + 15, closeHover ? Ui.WHITE : 0xB8E4E9EE);
 
         // lista
@@ -462,19 +468,19 @@ public final class ClientSettingsScreen extends Screen {
                 continue;
             }
             if (o.section) {
-                g.text(AstucyFonts.ui8(), o.label, x0 + 20, ry + 12, 0x669AA2AB, false);
-                Ui.hline(g, x0 + 20, ry + 24, pw - 40, 0x10FFFFFF);
+                g.text(AstucyFonts.ui8(), o.label, x0 + 20, ry + 12, 0xFF6FE3A2, false);
                 continue;
             }
 
             boolean hover = inside((int) mx, (int) my, x0 + 6, ry, pw - 12, rh)
                     && inside((int) mx, (int) my, x0, listTop, pw, listH);
             if (hover) {
-                Ui.rrect(g, x0 + 6, ry + 1, pw - 12, rh - 4, 0x0DFFFFFF);
+                Ui.rrect(g, x0 + 8, ry + 1, pw - 16, rh - 4, 0x14FFFFFF, 6);
+                Ui.rrect(g, x0 + 10, ry + 5, 2, rh - 12, 0xFF38C975, 1);
             }
 
             g.text(f, o.label, x0 + 20,
-                    ry + (rh - f.lineHeight) / 2 + 1, Ui.NAME, false);
+                    ry + (rh - f.lineHeight) / 2 + 1, hover ? Ui.TEXT : Ui.NAME, false);
 
             switch (o.kind) {
                 case 0 -> {
@@ -502,7 +508,9 @@ public final class ClientSettingsScreen extends Screen {
                     int bw = 140;
                     int by = ry + (rh - 22) / 2;
                     Ui.rrect(g, bx, by, bw, 22,
-                            Ui.mix(0x1AFFFFFF, 0x33FFFFFF, hover ? 1f : 0f));
+                            Ui.mix(0x18FFFFFF, 0x2C38C975, hover ? 1f : 0f), 6);
+                    Ui.rframe(g, bx, by, bw, 22,
+                            Ui.mix(0x22FFFFFF, 0x8838C975, hover ? 1f : 0f), 6);
                     Ui.ctext(g, f, formatButton(o.label), bx + bw / 2, by + 6,
                             hover ? Ui.TEXT : Ui.NAME);
                 }

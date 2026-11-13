@@ -18,8 +18,10 @@
     "HudEffectsMixin",
     "ChatComponentMixin",
     "ChatScreenSearchMixin",
-    "ChatInputCharsMixin",
     "CameraFovMixin",
+    "FontTextureMixin",
+    "GlyphRenderStateMixin",
+    "NativeImageFontMixin",
     "ScreenInvoker"
   ],
   "injectors": {

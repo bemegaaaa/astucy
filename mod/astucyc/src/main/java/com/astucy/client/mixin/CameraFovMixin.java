@@ -19,8 +19,10 @@ public abstract class CameraFovMixin {
     @Inject(method = "calculateFov", at = @At("RETURN"), cancellable = true)
     private void astucy$zoomFov(float partial, CallbackInfoReturnable<Float> cir) {
         float f = Modules.zoomFovFactor();
-        if (f < 0.999f) {
-            cir.setReturnValue(Math.max(1.5f, cir.getReturnValueF() * f));
+        float rush = Modules.moveRushFactor();
+        if (f < 0.999f || rush > 0.001f) {
+            float mult = f < 0.999f ? f : (1f + rush);
+            cir.setReturnValue(Math.max(1.5f, cir.getReturnValueF() * mult));
         }
     }
 }

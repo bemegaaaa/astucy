@@ -69,8 +69,11 @@ public class AstucyClient implements ClientModInitializer {
             while (editorKey.consumeClick()) {
                 mc.gui.setScreen(new HudEditorScreen());
             }
-            if (!hintShown && mc.player != null) {
+            if (mc.player == null) {
+                hintShown = false;
+            } else if (!hintShown) {
                 hintShown = true;
+                Modules.triggerJoinIntro();
                 mc.player.sendSystemMessage(
                         Component.literal("§fAstucy§8: §7R-SHIFT opens the module menu"));
             }

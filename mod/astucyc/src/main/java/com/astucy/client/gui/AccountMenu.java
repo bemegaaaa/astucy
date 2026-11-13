@@ -35,6 +35,9 @@ public final class AccountMenu {
     private static boolean open;
     private static boolean quitRequested;
     private static String notice = "";
+    private static float chipHoverAnim = 0f;
+    private static float openAnim = 0f;
+    private static long lastFrameMs = System.currentTimeMillis();
 
     private static List<Accounts.Acc> list = new ArrayList<>();
 
@@ -59,11 +62,15 @@ public final class AccountMenu {
 
     /** Largura do chip (nome atual) — o campo de busca desconta isso. */
     public static int chipWidth(Font f) {
-        return Math.min(80, 18 + f.width(Accounts.currentName()) + 18);
+        return Math.min(118, 20 + f.width(Accounts.currentName()) + 16);
     }
 
     /** Chip da conta, ao lado do X de fechar. */
     public static void drawChip(GuiGraphicsExtractor g, Font f, int x0, int y0, int pw, int topH) {
+        long now = System.currentTimeMillis();
+        float dt = Math.min(0.05f, Math.max(0.002f, (now - lastFrameMs) / 1000f));
+        lastFrameMs = now;
+
         String name = Accounts.currentName();
         int h = 18;
         int w = chipWidth(f);
@@ -76,21 +83,30 @@ public final class AccountMenu {
         minX = x0 + 8;
 
         boolean hov = inside((int) cursorX, (int) cursorY, x, y, w, h);
-        int bg = open ? 0x3AFFFFFF : (hov ? 0x2CFFFFFF : 0x1CFFFFFF);
+        chipHoverAnim += ((hov ? 1f : 0f) - chipHoverAnim) * Math.min(1f, dt * 16f);
+        openAnim += ((open ? 1f : 0f) - openAnim) * Math.min(1f, dt * 18f);
+
+        int bg = Ui.mix(Ui.mix(0x18FFFFFF, 0x2AFFFFFF, chipHoverAnim), 0x2C38C975, openAnim);
+        int border = Ui.mix(Ui.mix(0x1EFFFFFF, 0x3AFFFFFF, chipHoverAnim), 0x8838C975, openAnim);
         Ui.rrect(g, x, y, w, h, bg, 6);
+        Ui.rframe(g, x, y, w, h, border, 6);
 
         avatar(g, f, Accounts.currentUuid(), name, x + 3, y + 3, 12);
 
         String shown = name;
-        while (!shown.isEmpty() && f.width(shown) + 19 + 8 > w) {
-            shown = shown.substring(0, shown.length() - 1);
+        int maxTextW = w - 19 - 13;
+        if (f.width(shown) > maxTextW) {
+            while (!shown.isEmpty() && f.width(shown + "…") > maxTextW) {
+                shown = shown.substring(0, shown.length() - 1);
+            }
+            shown = shown + "…";
         }
         g.text(f, shown, x + 19, y + (h - f.lineHeight) / 2 + 1, Ui.TEXT, false);
 
-        // chevron 4x3 desenhado em pixels (a fonte bitmap não tem "v" bonito)
+        // chevron 4x3 desenhado em pixels
         int cx = x + w - 10;
         int cy = y + h / 2 - 1;
-        int cc = open ? Ui.TEXT : Ui.DIM;
+        int cc = open ? 0xFF38C975 : (hov ? Ui.TEXT : Ui.DIM);
         Ui.rect(g, cx, cy, 1, 1, cc);
         Ui.rect(g, cx + 1, cy + 1, 1, 1, cc);
         Ui.rect(g, cx + 2, cy + 1, 1, 1, cc);

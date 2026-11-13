@@ -47,7 +47,7 @@ fn palette(light: bool) -> Pal {
             bg: Color32::from_rgb(241, 242, 245),
             surface: Color32::from_rgb(255, 255, 255),
             surface2: Color32::from_rgb(246, 247, 249),
-            line: Color32::from_rgba_unmultiplied(11, 15, 21, 20),
+            line: Color32::from_rgba_unmultiplied(11, 15, 21, 10),
             text: Color32::from_rgb(11, 15, 21),
             name: Color32::from_rgb(11, 15, 21),
             dim: Color32::from_rgb(94, 104, 117),
@@ -60,9 +60,9 @@ fn palette(light: bool) -> Pal {
     } else {
         Pal {
             bg: Color32::from_rgb(8, 10, 13),
-            surface: Color32::from_rgb(16, 20, 24),
-            surface2: Color32::from_rgb(21, 26, 32),
-            line: Color32::from_rgba_unmultiplied(255, 255, 255, 18),
+            surface: Color32::from_rgb(15, 19, 24),
+            surface2: Color32::from_rgb(21, 26, 33),
+            line: Color32::from_rgba_unmultiplied(255, 255, 255, 8),
             text: Color32::from_rgb(242, 245, 249),
             name: Color32::from_rgb(242, 245, 249),
             dim: Color32::from_rgb(152, 163, 177),
@@ -305,6 +305,10 @@ impl App {
             sys: None,
         };
 
+        let _ = profile::sync_core_mod();
+        std::thread::spawn(|| {
+            let _ = engine::check_github_updates();
+        });
         app.refresh_installed();
         app.refresh_mods();
         app.spawn_catalog(false);
@@ -513,7 +517,7 @@ impl App {
     }
 
     fn refresh_mods(&mut self) {
-        self.mods = scan_mods();
+        self.mods = scan_mods(&self.version);
     }
 
     fn default_account(&self) -> Option<&auth::AccountView> {
@@ -774,6 +778,7 @@ impl App {
                         Ok(id) => {
                             self.refresh_installed();
                             self.version = id.clone();
+                            self.refresh_mods();
                             self.save();
                             self.toast(format!("{id} pronta."), false);
                         }
@@ -784,10 +789,25 @@ impl App {
                     self.launching = false;
                     match r {
                         Ok(_) => {
+                            let is_client = self
+                                .version
+                                .split('.')
+                                .next()
+                                .and_then(|s| s.parse::<u32>().ok())
+                                .unwrap_or(0)
+                                >= 26;
                             if self.close_on_play {
                                 self.close_at = Some(now() + 1.6);
+                            } else if is_client {
+                                self.toast("Astucy Client aberto. Bom jogo!", false);
                             } else {
-                                self.toast("Jogo aberto. Bom jogo!", false);
+                                self.toast(
+                                    format!(
+                                        "{} aberto (Vanilla — o mod do client roda na 26.x).",
+                                        self.version
+                                    ),
+                                    false,
+                                );
                             }
                         }
                         Err(e) => self.toast(e, true),
@@ -898,7 +918,12 @@ impl App {
                                 .send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                         }
                         ui.add_space(12.0);
+                        let prev_light = self.light;
                         theme_pill(ui, &mut self.light, &mut self.pal);
+                        if self.light != prev_light {
+                            let choice = if self.light { "light" } else { "dark" };
+                            self.apply_theme(choice);
+                        }
                     });
                 });
             });
@@ -966,14 +991,24 @@ impl App {
                 }
 
                 let atex = self.default_head(ui.ctx());
+                let mut clicked_acc = false;
                 ui.with_layout(Layout::bottom_up(Align::LEFT), |ui| {
                     ui.add_space(2.0);
                     text(ui, "Astucy", 9.0, p.faint, false);
                     ui.add_space(10.0);
                     ram_meter(ui, self.sys.as_ref(), p);
                     ui.add_space(8.0);
-                    account_card(ui, self.default_account(), atex.as_ref(), p);
+                    if account_card(ui, self.default_account(), atex.as_ref(), p).clicked() {
+                        clicked_acc = true;
+                    }
                 });
+                if clicked_acc {
+                    if self.pane != Pane::Home {
+                        self.pane = Pane::Home;
+                        self.pane_at = now();
+                    }
+                    self.account_open = !self.account_open;
+                }
             });
     }
 
@@ -1059,7 +1094,12 @@ impl App {
             egui::UiBuilder::new().max_rect(rect.shrink2(Vec2::new(26.0, 22.0))),
             |ui| {
                 ui.horizontal(|ui| {
-                    pill_outline(ui, "MINECRAFT: JAVA EDITION", p);
+                    let badge_txt = if self.version.contains("Rust") {
+                        "ASTUCY · MOTOR RUST 26.3"
+                    } else {
+                        "MINECRAFT: JAVA EDITION"
+                    };
+                    pill_outline(ui, badge_txt, p);
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         chip(ui, &self.version, p);
                     });
@@ -1067,7 +1107,8 @@ impl App {
 
                 ui.add_space(22.0);
                 let (logo, _) = ui.allocate_exact_size(Vec2::splat(44.0), Sense::hover());
-                paint_iris(ui.painter(), logo, p.text, 0.0);
+                let iris_rot = (now() as f32) * if self.launching { 2.2 } else { 0.16 };
+                paint_iris(ui.painter(), logo, p.text, iris_rot);
                 wordmark(
                     ui.painter(),
                     logo.right() + 14.0,
@@ -1118,6 +1159,7 @@ impl App {
                         ui.add_space(4.0);
                         if let Some(pick) = version_picker(ui, &self.version, &self.installed, p) {
                             self.version = pick;
+                            self.refresh_mods();
                             self.save();
                         }
                     });
@@ -1715,6 +1757,7 @@ impl App {
             Some(CardAction::Install(id)) => self.install(id),
             Some(CardAction::Use(id)) => {
                 self.version = id;
+                self.refresh_mods();
                 self.save();
             }
             None => {}
@@ -1723,6 +1766,7 @@ impl App {
 
     fn mods(&mut self, ui: &mut egui::Ui) {
         let p = self.pal;
+        let is_rust = self.version.contains("Rust");
         let ver = if self.version.is_empty() {
             "—".to_string()
         } else {
@@ -1732,23 +1776,83 @@ impl App {
             ui.vertical(|ui| {
                 text(ui, "Mods", 26.0, p.text, true);
                 ui.add_space(3.0);
-                text(
-                    ui,
-                    &format!(
+                let sub = if is_rust {
+                    "26.3 (Rust) \u{2014} motor nativo em Rust. Mods .jar de Fabric não rodam aqui; ative os addons opcionais abaixo.".to_string()
+                } else {
+                    format!(
                         "Fabric {ver} \u{2014} baixa direto do Modrinth, já com as dependências obrigatórias."
-                    ),
-                    11.5,
-                    p.dim,
-                    false,
-                );
+                    )
+                };
+                text(ui, &sub, 11.5, p.dim, false);
             });
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if chip_button(ui, "Abrir pasta", p).clicked() {
-                    let _ = engine::open_folder("mods");
+                    if let Ok(dir) = profile::mods_dir_for(&self.version) {
+                        let _ = std::process::Command::new("explorer").arg(dir).spawn();
+                    } else {
+                        let _ = engine::open_folder("mods");
+                    }
                 }
             });
         });
         ui.add_space(14.0);
+
+        if is_rust {
+            const RUST_ADDONS: &[(&str, &str, &str, bool)] = &[
+                ("modmenu", "Mod Menu", "Lista de módulos e configs no menu R-SHIFT", false),
+                ("mousetweaks", "Mouse Tweaks", "Arrastar itens rápido e scroll no inventário/baús", false),
+                ("itemrespawn", "Custom Item Respawn", "Troca rápida e respawn customizado de itens/totem", false),
+                ("healthtag", "Player Health (Corações)", "Mostra corações de vida em cima da cabeça dos players (ajustável no R-SHIFT)", false),
+                ("blur", "Motion Blur", "Desfoque suave ao girar a câmera", false),
+                ("fullbright", "Fullbright", "Brilho máximo em cavernas e à noite", false),
+                ("zoom", "Zoom (C)", "Zoom suave segurando a tecla C", false),
+                ("crosshair", "Custom Crosshair", "Mira pixelada customizável no R-SHIFT", false),
+                ("viewmodel", "Viewmodel", "Escala e posição da mão/escudo/totem", false),
+                ("target", "Target HUD", "HUD com vida e info do alvo na mira", false),
+            ];
+            ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                text(ui, "Addons opcionais do Astucy (Rust)", 15.0, p.text, true);
+                ui.add_space(4.0);
+                text(
+                    ui,
+                    "Sincronizado com astucy-rust.json — também pode ser ajustado dentro do jogo com R-SHIFT.",
+                    10.5,
+                    p.faint,
+                    false,
+                );
+                ui.add_space(10.0);
+                for &(id, title, desc, def_on) in RUST_ADDONS {
+                    let on = profile::rust_addon_enabled(id, def_on);
+                    Frame::none()
+                        .fill(p.surface)
+                        .rounding(Rounding::same(12.0))
+                        .stroke(Stroke::new(1.0_f32, p.line))
+                        .inner_margin(Margin::symmetric(16.0, 10.0))
+                        .show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
+                            ui.horizontal(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.horizontal(|ui| {
+                                        text(ui, title, 12.5, p.name, true);
+                                        ui.add_space(6.0);
+                                        chip(ui, "rust", p);
+                                    });
+                                    text(ui, desc, 10.5, p.faint, false);
+                                });
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    if switch(ui, on, p).clicked() {
+                                        if let Err(e) = profile::set_rust_addon_enabled(id, !on) {
+                                            self.toast(e, true);
+                                        }
+                                    }
+                                });
+                            });
+                        });
+                    ui.add_space(8.0);
+                }
+            });
+            return;
+        }
 
         ui.horizontal(|ui| {
             let w = (ui.available_width() - 112.0).max(220.0);
@@ -1838,7 +1942,27 @@ impl App {
                         ui.set_min_width(ui.available_width());
                         ui.horizontal(|ui| {
                             ui.vertical(|ui| {
-                                text(ui, &m.name, 12.5, p.name, true);
+                                ui.horizontal(|ui| {
+                                    text(ui, &m.name, 12.5, p.name, true);
+                                    let lower = m.name.to_ascii_lowercase();
+                                    let is_core = [
+                                        "astucyc",
+                                        "fabric-api",
+                                        "sodium",
+                                        "lithium",
+                                        "iris",
+                                        "immediatelyfast",
+                                        "entityculling",
+                                        "ferritecore",
+                                        "modmenu",
+                                    ]
+                                    .iter()
+                                    .any(|k| lower.contains(k));
+                                    if is_core {
+                                        ui.add_space(6.0);
+                                        chip(ui, "core", p);
+                                    }
+                                });
                                 text(
                                     ui,
                                     &format!(
@@ -1950,7 +2074,8 @@ impl App {
             self.confirm_remove = None;
             return;
         };
-        let path = mods_dir().join(&m.name);
+        let dir = profile::mods_dir_for(&self.version).unwrap_or_else(|_| mods_dir());
+        let path = dir.join(&m.name);
         match std::fs::remove_file(&path) {
             Ok(()) => {
                 self.toast(format!("{} removido.", m.name), false);
@@ -1977,7 +2102,7 @@ impl App {
         let Some(m) = self.mods.get(i).cloned() else {
             return;
         };
-        let dir = mods_dir();
+        let dir = profile::mods_dir_for(&self.version).unwrap_or_else(|_| mods_dir());
         let from = dir.join(&m.name);
         let to = if m.enabled {
             dir.join(format!("{}.disabled", m.name))
@@ -2563,6 +2688,12 @@ fn nav_item(ui: &mut egui::Ui, icon: u8, label: &str, on: bool, p: Pal) -> Respo
             Rounding::same(11.0),
             Stroke::new(1.0_f32, mixc(p.bg, p.line, sel)),
         );
+        let bar_h = 14.0 * sel;
+        let bar = egui::Rect::from_center_size(
+            egui::pos2(rect.left() + 4.0, rect.center().y),
+            Vec2::new(2.5, bar_h),
+        );
+        ui.painter().rect_filled(bar, Rounding::same(2.0), p.accent);
     }
     let col = mixc(p.dim, p.text, a);
     let irect = egui::Rect::from_center_size(
@@ -2570,11 +2701,12 @@ fn nav_item(ui: &mut egui::Ui, icon: u8, label: &str, on: bool, p: Pal) -> Respo
         Vec2::splat(15.0),
     );
     nav_icon(ui.painter(), irect, icon, mixc(col, p.accent, sel));
+    let fam = if on { "dmb" } else { "dm" };
     ui.painter().text(
         rect.left_center() + Vec2::new(42.0, 0.0),
         Align2::LEFT_CENTER,
         label,
-        FontId::new(12.5, FontFamily::Name("dm".into())),
+        FontId::new(12.5, FontFamily::Name(fam.into())),
         col,
     );
     if sel > 0.04 {
@@ -3236,16 +3368,17 @@ fn play_button(ui: &mut egui::Ui, label: &str, sub: &str, busy: bool, p: Pal) ->
         .ctx()
         .animate_bool_with_time(id, resp.hovered() && !busy, 0.16);
     if h > 0.02 {
+        let a = p.accent.to_array();
         ui.painter().rect_filled(
-            rect.translate(Vec2::new(0.0, 3.0)),
-            Rounding::same(14.0),
-            Color32::from_rgba_unmultiplied(0, 0, 0, (36.0 * h) as u8),
+            rect.expand(2.0 * h).translate(Vec2::new(0.0, 3.0)),
+            Rounding::same(16.0),
+            Color32::from_rgba_unmultiplied(a[0], a[1], a[2], (34.0 * h) as u8),
         );
     }
     let body = if busy {
         rect
     } else {
-        rect.translate(Vec2::new(0.0, -3.5 * h))
+        rect.translate(Vec2::new(0.0, -3.0 * h))
     };
     let fill = if busy {
         p.surface2
@@ -3296,12 +3429,25 @@ fn play_button(ui: &mut egui::Ui, label: &str, sub: &str, busy: bool, p: Pal) ->
             )),
         );
     }
+    let ink = if busy { p.dim } else { p.accent_ink };
+    if !busy {
+        let tc = egui::pos2(body.right() - 24.0, body.center().y);
+        ui.painter().add(egui::Shape::convex_polygon(
+            vec![
+                tc + Vec2::new(-4.0, -6.0),
+                tc + Vec2::new(6.0, 0.0),
+                tc + Vec2::new(-4.0, 6.0),
+            ],
+            ink,
+            Stroke::NONE,
+        ));
+    }
     ui.painter().text(
         egui::pos2(body.left() + 20.0, body.center().y - 8.0),
         Align2::LEFT_CENTER,
         label,
         FontId::new(16.0, FontFamily::Name("dmb".into())),
-        if busy { p.dim } else { p.accent_ink },
+        ink,
     );
     ui.painter().text(
         egui::pos2(body.left() + 20.0, body.center().y + 10.0),
@@ -3375,35 +3521,47 @@ fn account_card(
     acc: Option<&auth::AccountView>,
     skin: Option<&egui::TextureHandle>,
     p: Pal,
-) {
-    Frame::none()
-        .fill(p.surface)
-        .rounding(Rounding::same(14.0))
-        .stroke(Stroke::new(1.0_f32, p.line))
-        .inner_margin(Margin::symmetric(12.0, 10.0))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let (r, _) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::hover());
-                paint_avatar(
-                    ui,
-                    r,
-                    acc.map(|a| a.name.as_str()).unwrap_or("?"),
-                    skin,
-                    p,
-                );
-                ui.add_space(8.0);
-                ui.vertical(|ui| {
-                    text(ui, acc.map(|a| a.name.as_str()).unwrap_or("offline"), 12.0, p.name, true);
-                    text(
-                        ui,
-                        if acc.is_some() { "conta original" } else { "sem login" },
-                        9.5,
-                        p.faint,
-                        false,
-                    );
-                });
-            });
-        });
+) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 48.0), Sense::click());
+    let hl = ui
+        .ctx()
+        .animate_bool_with_time(ui.id().with("sidebar-acc"), resp.hovered(), 0.14);
+    ui.painter().rect_filled(
+        rect,
+        Rounding::same(14.0),
+        mixc(p.surface, p.surface2, hl),
+    );
+    ui.painter().rect_stroke(
+        rect,
+        Rounding::same(14.0),
+        Stroke::new(1.0_f32, mixc(p.line, p.dim, hl * 0.6)),
+    );
+    let av = egui::Rect::from_center_size(
+        rect.left_center() + Vec2::new(24.0, 0.0),
+        Vec2::splat(28.0),
+    );
+    paint_avatar(
+        ui,
+        av,
+        acc.map(|a| a.name.as_str()).unwrap_or("?"),
+        skin,
+        p,
+    );
+    ui.painter().text(
+        rect.left_center() + Vec2::new(46.0, -6.0),
+        Align2::LEFT_CENTER,
+        acc.map(|a| a.name.as_str()).unwrap_or("offline"),
+        FontId::new(12.0, FontFamily::Name("dmb".into())),
+        p.name,
+    );
+    ui.painter().text(
+        rect.left_center() + Vec2::new(46.0, 7.0),
+        Align2::LEFT_CENTER,
+        if acc.is_some() { "conta original" } else { "sem login" },
+        FontId::new(9.5, FontFamily::Name("dm".into())),
+        p.faint,
+    );
+    resp
 }
 
 fn ram_meter(ui: &mut egui::Ui, sys: Option<&Value>, p: Pal) {
@@ -3526,6 +3684,9 @@ fn version_card(
             ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
                 text(ui, &v.id, 13.5, p.text, true);
+                if v.client {
+                    badge(ui, "Client", p);
+                }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if busy {
                         text(ui, "baixando…", 10.5, p.faint, false);
@@ -3776,6 +3937,12 @@ fn read_settings(path: &PathBuf) -> Value {
 
 fn scan_installed() -> Vec<Installed> {
     let mut out = Vec::new();
+    if engine::horizon_available() {
+        out.push(Installed {
+            name: "26.3 (Rust)".to_string(),
+            modified: u64::MAX,
+        });
+    }
     if let Ok(entries) = std::fs::read_dir(mc_root().join("versions")) {
         for e in entries.flatten() {
             if !e.path().is_dir() {
@@ -3799,9 +3966,10 @@ fn scan_installed() -> Vec<Installed> {
     out
 }
 
-fn scan_mods() -> Vec<ModFile> {
+fn scan_mods(version: &str) -> Vec<ModFile> {
     let mut out = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(mods_dir()) {
+    let dir = profile::mods_dir_for(version).unwrap_or_else(|_| mods_dir());
+    if let Ok(entries) = std::fs::read_dir(dir) {
         for e in entries.flatten() {
             let file = e.file_name().to_string_lossy().to_string();
             let enabled = file.ends_with(".jar");
@@ -3948,13 +4116,46 @@ impl App {
             .anchor(Align2::CENTER_BOTTOM, [0.0, -24.0 + (1.0 - e_in) * 34.0])
             .show(ctx, |ui| {
                 ui.set_opacity(vis);
+                let dot_col = if error {
+                    Color32::from_rgb(232, 92, 102)
+                } else {
+                    p.accent
+                };
                 Frame::none()
-                    .fill(if error { Color32::from_rgb(120, 36, 44) } else { p.surface2 })
-                    .rounding(Rounding::same(10.0))
-                    .stroke(Stroke::new(1.0_f32, p.line))
+                    .fill(if error {
+                        Color32::from_rgb(48, 22, 26)
+                    } else {
+                        p.surface2
+                    })
+                    .rounding(Rounding::same(12.0))
+                    .stroke(Stroke::new(
+                        1.0_f32,
+                        if error {
+                            Color32::from_rgba_unmultiplied(232, 92, 102, 110)
+                        } else {
+                            p.line
+                        },
+                    ))
+                    .shadow(egui::epaint::Shadow {
+                        offset: egui::vec2(0.0, 6.0),
+                        blur: 18.0,
+                        spread: 0.0,
+                        color: p.shadow,
+                    })
                     .inner_margin(Margin::symmetric(14.0, 9.0))
                     .show(ui, |ui| {
-                        text(ui, &msg, 11.5, if error { Color32::WHITE } else { p.text }, false);
+                        ui.horizontal(|ui| {
+                            let (dr, _) = ui.allocate_exact_size(egui::vec2(7.0, 7.0), Sense::hover());
+                            ui.painter().circle_filled(dr.center(), 3.2, dot_col);
+                            ui.add_space(6.0);
+                            text(
+                                ui,
+                                &msg,
+                                11.5,
+                                if error { Color32::WHITE } else { p.text },
+                                false,
+                            );
+                        });
                     });
             });
     }

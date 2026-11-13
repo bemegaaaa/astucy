@@ -51,12 +51,13 @@ public final class Skin {
         color = quant(color);
         int col = color;
         int s = texScale();
+        int c = Math.max(1, Math.min(12, Math.min(radius, Math.min(w, h) / 2)));
         try {
-            Identifier id = texture("box:" + s, col, () -> boxImage(col, s));
+            Identifier id = texture("box:" + s + ":" + c, col, () -> boxImage(col, s, c));
             int tex = BOX_TEX * s;
-            int rc = BOX_R * s;
-            int mid = tex - 2 * rc;
-            int c = Math.max(1, Math.min(radius, Math.min(w, h) / 2));
+            int rc = c * s;
+            int eu = Math.min(tex / 2 - s, rc + s);
+            int ew = Math.max(s, tex - 2 * eu);
             int mw = w - 2 * c;
             int mh = h - 2 * c;
             blit(g, id, x, y, 0, 0, c, c, rc, rc, tex);
@@ -64,15 +65,15 @@ public final class Skin {
             blit(g, id, x, y + h - c, 0, tex - rc, c, c, rc, rc, tex);
             blit(g, id, x + w - c, y + h - c, tex - rc, tex - rc, c, c, rc, rc, tex);
             if (mw > 0) {
-                blit(g, id, x + c, y, rc, 0, mw, c, mid, rc, tex);
-                blit(g, id, x + c, y + h - c, rc, tex - rc, mw, c, mid, rc, tex);
+                blit(g, id, x + c, y, eu, 0, mw, c, ew, rc, tex);
+                blit(g, id, x + c, y + h - c, eu, tex - rc, mw, c, ew, rc, tex);
             }
             if (mh > 0) {
-                blit(g, id, x, y + c, 0, rc, c, mh, rc, mid, tex);
-                blit(g, id, x + w - c, y + c, tex - rc, rc, c, mh, rc, mid, tex);
+                blit(g, id, x, y + c, 0, eu, c, mh, rc, ew, tex);
+                blit(g, id, x + w - c, y + c, tex - rc, eu, c, mh, rc, ew, tex);
             }
             if (mw > 0 && mh > 0) {
-                blit(g, id, x + c, y + c, rc, rc, mw, mh, mid, mid, tex);
+                blit(g, id, x + c, y + c, eu, eu, mw, mh, ew, ew, tex);
             }
             return true;
         } catch (Throwable t) {
@@ -93,8 +94,8 @@ public final class Skin {
         color = quant(color);
         int col = color;
         try {
-            // resolução generosa (4x o tamanho) — nunca upscala, sempre nítido
-            int px = Math.max(48, Math.min(256, size * 4));
+            int s = texScale();
+            int px = Math.max(24, Math.min(256, size * s * 2));
             Identifier id = texture("icon:" + name + ":" + px, col, () -> iconImage(name, col, px));
             blit(g, id, x, y, 0, 0, size, size, px, px, px);
             return true;
@@ -102,6 +103,166 @@ public final class Skin {
             markBroken();
             return false;
         }
+    }
+
+    /**
+     * Desenha a logo oficial do app Astucy (anel Íris segmentado em 3 setores:
+     * [-18°..18°], [42°..138°], [162°..258°], raios 46..96 na escala 256) com
+     * rotação e escala contínuas em ponto flutuante via Matrix3x2fStack.
+     */
+    public static boolean logo(GuiGraphicsExtractor g, float cx, float cy, float size, float angleRad, int color) {
+        if (broken || size <= 0.5f) {
+            return false;
+        }
+        color = quant(color);
+        if (((color >>> 24) & 0xFF) == 0) {
+            return false;
+        }
+        int col = color;
+        try {
+            int tex = 160;
+            Identifier id = texture("astucy-logo:" + tex, col, () -> logoImage(col, tex));
+            g.pose().pushMatrix();
+            g.pose().translate(cx, cy);
+            if (angleRad != 0f) {
+                g.pose().rotate(angleRad);
+            }
+            float sc = size / 64f;
+            g.pose().scale(sc, sc);
+            blit(g, id, -32, -32, 0, 0, 64, 64, tex, tex, tex);
+            g.pose().popMatrix();
+            return true;
+        } catch (Throwable t) {
+            markBroken();
+            return false;
+        }
+    }
+
+    /**
+     * Anima a logo oficial do Astucy girando e viajando de (x0, y0) até (x1, y1)
+     * em arco suave, deixando rastro luminoso esmeralda, partículas orbitais e
+     * pulso de encaixe ao chegar no destino.
+     */
+    public static void logoTravel(GuiGraphicsExtractor g,
+                                  float x0, float y0, float x1, float y1,
+                                  float rawProgress,
+                                  float sizeStart, float sizeEnd,
+                                  float idleSpinRad,
+                                  int mainColor, int accentColor) {
+        float t = Math.max(0f, Math.min(1f, rawProgress));
+        // Easing quintic out para chegada super fluida + giro acelerado durante o voo
+        float inv = 1f - t;
+        float ease = 1f - inv * inv * inv * inv;
+        float arcLift = (float) Math.sin(t * Math.PI) * -18f * inv;
+
+        float cx = x0 + (x1 - x0) * ease;
+        float cy = y0 + (y1 - y0) * ease + arcLift;
+        float size = sizeStart + (sizeEnd - sizeStart) * ease;
+        float flightSpin = inv * inv * 8.5f; // ~1.35 voltas suaves desacelerando ao encaixar
+        float angle = idleSpinRad - flightSpin;
+
+        int mainA = (mainColor >>> 24) & 0xFF;
+        int accA = (accentColor >>> 24) & 0xFF;
+
+        // Rastro de cometa (afterimages) enquanto a logo está em movimento
+        if (t > 0.01f && t < 0.98f) {
+            for (int i = 5; i >= 1; i--) {
+                float tp = Math.max(0f, t - i * 0.038f);
+                float tinv = 1f - tp;
+                float tease = 1f - tinv * tinv * tinv * tinv;
+                float tarc = (float) Math.sin(tp * Math.PI) * -18f * tinv;
+                float tx = x0 + (x1 - x0) * tease;
+                float ty = y0 + (y1 - y0) * tease + tarc;
+                float tsz = (sizeStart + (sizeEnd - sizeStart) * tease) * (1f - i * 0.11f);
+                float tang = idleSpinRad - tinv * tinv * 8.5f;
+                float fade = (1f - i / 6f) * inv * 0.55f;
+                int trailA = Math.round(accA * fade);
+                if (trailA > 2) {
+                    int trailCol = (trailA << 24) | (accentColor & 0x00FFFFFF);
+                    glow(g, Math.round(tx), Math.round(ty), Math.max(6, Math.round(tsz * 0.65f)),
+                            (Math.max(1, trailA / 2) << 24) | (accentColor & 0x00FFFFFF));
+                    logo(g, tx, ty, tsz, tang, trailCol);
+                }
+            }
+        }
+
+        // Onda/halo de impacto quando a logo encaixa no destino (t ~ 0.65..1.0)
+        if (t > 0.60f && t < 0.995f) {
+            float shockT = (t - 0.60f) / 0.40f;
+            float shockR = sizeEnd * (0.65f + shockT * 1.35f);
+            int shockA = Math.round(accA * (1f - shockT) * 0.55f);
+            if (shockA > 2) {
+                glow(g, Math.round(x1), Math.round(y1), Math.round(shockR),
+                        (shockA << 24) | (accentColor & 0x00FFFFFF));
+            }
+        }
+
+        // Halo esmeralda respirando atrás da logo
+        int glowA = Math.round(accA * (0.35f + 0.25f * inv));
+        if (glowA > 2) {
+            glow(g, Math.round(cx), Math.round(cy), Math.max(8, Math.round(size * 0.85f)),
+                    (glowA << 24) | (accentColor & 0x00FFFFFF));
+        }
+
+        // Camada secundária esmeralda defasada (efeito energético duplo)
+        int echoA = Math.round(accA * (0.28f + 0.32f * inv));
+        if (echoA > 2) {
+            logo(g, cx, cy, size * (1.06f + 0.06f * inv), -angle * 0.6f,
+                    (echoA << 24) | (accentColor & 0x00FFFFFF));
+        }
+
+        // Logo principal nítida girando
+        if (mainA > 0) {
+            logo(g, cx, cy, size, angle, mainColor);
+        }
+
+        // Partículas orbitais sutis ao redor da logo
+        int orbA = Math.round(accA * (0.45f + 0.45f * inv));
+        if (orbA > 6 && size >= 14f) {
+            float orbR = size * 0.54f;
+            for (int k = 0; k < 2; k++) {
+                double oa = angle * 1.4 + k * Math.PI;
+                int ox = Math.round(cx + (float) Math.cos(oa) * orbR) - 1;
+                int oy = Math.round(cy + (float) Math.sin(oa) * orbR) - 1;
+                disc(g, ox, oy, 2, (orbA << 24) | 0x6EE7B7);
+            }
+        }
+    }
+
+    private static NativeImage logoImage(int color, int tex) {
+        NativeImage img = new NativeImage(tex, tex, true);
+        float half = tex / 2f;
+        float scaleTo256 = 128f / half;
+        float invScale = half / 128f;
+        paint(img, color, (px, py) -> {
+            float x = (px - half) * scaleTo256;
+            float y = (py - half) * scaleTo256;
+            float r = (float) Math.sqrt(x * x + y * y);
+            // Anel entre raio interno 46 e raio externo 96 (escala 256x256 da logo oficial)
+            float dRing = Math.max(r - 96f, 46f - r);
+            float deg = (float) Math.toDegrees(Math.atan2(y, x));
+            if (deg < 0f) {
+                deg += 360f;
+            }
+            float dSec1 = sectorDist(deg, r, 0f, 18f);
+            float dSec2 = sectorDist(deg, r, 90f, 48f);
+            float dSec3 = sectorDist(deg, r, 210f, 48f);
+            float dSec = Math.min(dSec1, Math.min(dSec2, dSec3));
+            return Math.max(dRing, dSec) * invScale;
+        });
+        return img;
+    }
+
+    private static float sectorDist(float deg, float r, float centerDeg, float halfSpanDeg) {
+        float diff = Math.abs(deg - centerDeg);
+        if (diff > 180f) {
+            diff = 360f - diff;
+        }
+        float over = diff - halfSpanDeg;
+        if (over >= 90f) {
+            return r;
+        }
+        return r * (float) Math.sin(Math.toRadians(over));
     }
 
     /**
@@ -141,8 +302,12 @@ public final class Skin {
         return Math.max(1, Math.min(4, Math.round(guiScale())));
     }
 
-    /** Caixa arredondada com degradÃª vertical (topâ†’bottom) â€” botÃµes e painÃ©is. */
+    /** Caixa arredondada com degradê vertical (top→bottom) — botões e painéis. */
     public static boolean boxGrad(GuiGraphicsExtractor g, int x, int y, int w, int h, int top, int bottom) {
+        return boxGrad(g, x, y, w, h, top, bottom, BOX_R);
+    }
+
+    public static boolean boxGrad(GuiGraphicsExtractor g, int x, int y, int w, int h, int top, int bottom, int radius) {
         if (broken || w <= 0 || h <= 0) {
             return false;
         }
@@ -151,12 +316,13 @@ public final class Skin {
         int t1 = top;
         int t2 = bottom;
         int s = texScale();
+        int c = Math.max(1, Math.min(12, Math.min(radius, Math.min(w, h) / 2)));
         try {
-            Identifier id = texture("grad:" + s, (t1 << 1) ^ t2, () -> gradImage(t1, t2, s));
+            Identifier id = texture("grad:" + s + ":" + c, (t1 << 1) ^ t2, () -> gradImage(t1, t2, s, c));
             int tex = BOX_TEX * s;
-            int rc = BOX_R * s;
-            int mid = tex - 2 * rc;
-            int c = Math.max(1, Math.min(BOX_R, Math.min(w, h) / 2));
+            int rc = c * s;
+            int eu = Math.min(tex / 2 - s, rc + s);
+            int ew = Math.max(s, tex - 2 * eu);
             int mw = w - 2 * c;
             int mh = h - 2 * c;
             blit(g, id, x, y, 0, 0, c, c, rc, rc, tex);
@@ -164,15 +330,15 @@ public final class Skin {
             blit(g, id, x, y + h - c, 0, tex - rc, c, c, rc, rc, tex);
             blit(g, id, x + w - c, y + h - c, tex - rc, tex - rc, c, c, rc, rc, tex);
             if (mw > 0) {
-                blit(g, id, x + c, y, rc, 0, mw, c, mid, rc, tex);
-                blit(g, id, x + c, y + h - c, rc, tex - rc, mw, c, mid, rc, tex);
+                blit(g, id, x + c, y, eu, 0, mw, c, ew, rc, tex);
+                blit(g, id, x + c, y + h - c, eu, tex - rc, mw, c, ew, rc, tex);
             }
             if (mh > 0) {
-                blit(g, id, x, y + c, 0, rc, c, mh, rc, mid, tex);
-                blit(g, id, x + w - c, y + c, tex - rc, rc, c, mh, rc, mid, tex);
+                blit(g, id, x, y + c, 0, eu, c, mh, rc, ew, tex);
+                blit(g, id, x + w - c, y + c, tex - rc, eu, c, mh, rc, ew, tex);
             }
             if (mw > 0 && mh > 0) {
-                blit(g, id, x + c, y + c, rc, rc, mw, mh, mid, mid, tex);
+                blit(g, id, x + c, y + c, eu, eu, mw, mh, ew, ew, tex);
             }
             return true;
         } catch (Throwable t) {
@@ -208,24 +374,30 @@ public final class Skin {
 
     /** Contorno anti-alias 1px (anel suave — nada de degrau de pixel). */
     public static boolean outline(GuiGraphicsExtractor g, int x, int y, int w, int h, int color) {
+        return outline(g, x, y, w, h, color, BOX_R);
+    }
+
+    public static boolean outline(GuiGraphicsExtractor g, int x, int y, int w, int h, int color, int radius) {
         if (broken || w < 6 || h < 6) {
             return false;
         }
         color = quant(color);
         int col = color;
         int s = texScale();
+        int c = Math.max(1, Math.min(12, Math.min(radius, Math.min(w, h) / 2)));
         try {
-            Identifier id = texture("ring:" + s, col, () -> {
+            Identifier id = texture("ring:" + s + ":" + c, col, () -> {
                 int tex = BOX_TEX * s;
                 NativeImage img = new NativeImage(tex, tex, true);
                 float half = tex / 2f;
-                paint(img, col, (px, py) -> Math.abs(sdBox(px, py, half, half, 15f * s, 15f * s, 9f * s)) - 0.9f * s);
+                float r = Math.max(0.5f, (c - 1f)) * s;
+                paint(img, col, (px, py) -> Math.abs(sdBox(px, py, half, half, 15f * s, 15f * s, r)) - 0.42f * s);
                 return img;
             });
             int tex = BOX_TEX * s;
-            int rc = BOX_R * s;
-            int mid = tex - 2 * rc;
-            int c = Math.max(1, Math.min(BOX_R, Math.min(w, h) / 2));
+            int rc = c * s;
+            int eu = Math.min(tex / 2 - s, rc + s);
+            int ew = Math.max(s, tex - 2 * eu);
             int mw = w - 2 * c;
             int mh = h - 2 * c;
             blit(g, id, x, y, 0, 0, c, c, rc, rc, tex);
@@ -233,12 +405,12 @@ public final class Skin {
             blit(g, id, x, y + h - c, 0, tex - rc, c, c, rc, rc, tex);
             blit(g, id, x + w - c, y + h - c, tex - rc, tex - rc, c, c, rc, rc, tex);
             if (mw > 0) {
-                blit(g, id, x + c, y, rc, 0, mw, c, mid, rc, tex);
-                blit(g, id, x + c, y + h - c, rc, tex - rc, mw, c, mid, rc, tex);
+                blit(g, id, x + c, y, eu, 0, mw, c, ew, rc, tex);
+                blit(g, id, x + c, y + h - c, eu, tex - rc, mw, c, ew, rc, tex);
             }
             if (mh > 0) {
-                blit(g, id, x, y + c, 0, rc, c, mh, rc, mid, tex);
-                blit(g, id, x + w - c, y + c, tex - rc, rc, c, mh, rc, mid, tex);
+                blit(g, id, x, y + c, 0, eu, c, mh, rc, ew, tex);
+                blit(g, id, x + w - c, y + c, tex - rc, eu, c, mh, rc, ew, tex);
             }
             return true;
         } catch (Throwable t) {
@@ -256,8 +428,58 @@ public final class Skin {
      * texturas
      * ------------------------------------------------------------------ */
 
+    /** Halo / spotlight radial suave (queda cúbica, 1 quad acelerado por GPU). */
+    public static boolean glow(GuiGraphicsExtractor g, int cx, int cy, int radius, int color) {
+        if (broken || radius <= 0) {
+            return false;
+        }
+        color = quant(color);
+        if (((color >>> 24) & 0xFF) == 0) {
+            return false;
+        }
+        int col = color;
+        try {
+            int tex = 64;
+            Identifier id = texture("glow:64", col, () -> {
+                NativeImage img = new NativeImage(tex, tex, true);
+                int a = (col >>> 24) & 0xFF;
+                int r = (col >>> 16) & 0xFF;
+                int gr = (col >>> 8) & 0xFF;
+                int b = col & 0xFF;
+                float half = tex / 2f;
+                for (int y = 0; y < tex; y++) {
+                    for (int x = 0; x < tex; x++) {
+                        float dx = (x + 0.5f - half) / half;
+                        float dy = (y + 0.5f - half) / half;
+                        float d = (float) Math.sqrt(dx * dx + dy * dy);
+                        if (d >= 1f) {
+                            continue;
+                        }
+                        float u = 1f - d;
+                        float w = u * u * (1.2f * u);
+                        w = Math.min(1f, w);
+                        int sa = Math.round(a * w);
+                        if (sa <= 0) {
+                            continue;
+                        }
+                        int sr = Math.round(r * sa / 255f);
+                        int sg = Math.round(gr * sa / 255f);
+                        int sb = Math.round(b * sa / 255f);
+                        img.setPixel(x, y, (sa << 24) | (sr << 16) | (sg << 8) | sb);
+                    }
+                }
+                return img;
+            });
+            blit(g, id, cx - radius, cy - radius, 0, 0, radius * 2, radius * 2, tex, tex, tex);
+            return true;
+        } catch (Throwable t) {
+            markBroken();
+            return false;
+        }
+    }
+
     /** Grão sutil de vidro (tiles de 96px, alfa já embutido na textura). */
-    private static void noise(GuiGraphicsExtractor g, int x, int y, int w, int h) {
+    public static void noise(GuiGraphicsExtractor g, int x, int y, int w, int h) {
         if (broken || w <= 0 || h <= 0) {
             return;
         }
@@ -283,8 +505,8 @@ public final class Skin {
             java.util.Random rnd = new java.util.Random(1337L);
             for (int y = 0; y < s; y++) {
                 for (int x = 0; x < s; x++) {
-                    // alfa premultiplicado: RGB nunca passa do alfa
-                    int a = 5 + rnd.nextInt(7);
+                    // alfa premultiplicado super sutil
+                    int a = 2 + rnd.nextInt(4);
                     img.setPixel(x, y, (a << 24) | (a << 16) | (a << 8) | a);
                 }
             }
@@ -412,19 +634,21 @@ public final class Skin {
         }
     }
 
-    private static NativeImage boxImage(int color, int s) {
+    private static NativeImage boxImage(int color, int s, int c) {
         int tex = BOX_TEX * s;
         NativeImage img = new NativeImage(tex, tex, true);
         float half = tex / 2f;
-        paint(img, color, (px, py) -> sdBox(px, py, half, half, 15f * s, 15f * s, 9f * s));
+        float r = Math.max(0.5f, (c - 1f)) * s;
+        paint(img, color, (px, py) -> sdBox(px, py, half, half, 15f * s, 15f * s, r));
         return img;
     }
 
-    private static NativeImage gradImage(int top, int bottom, int s) {
+    private static NativeImage gradImage(int top, int bottom, int s, int c) {
         int tex = BOX_TEX * s;
         NativeImage img = new NativeImage(tex, tex, true);
         float half = tex / 2f;
-        paintGrad(img, top, bottom, (px, py) -> sdBox(px, py, half, half, 15f * s, 15f * s, 9f * s));
+        float r = Math.max(0.5f, (c - 1f)) * s;
+        paintGrad(img, top, bottom, (px, py) -> sdBox(px, py, half, half, 15f * s, 15f * s, r));
         return img;
     }
 
@@ -718,6 +942,13 @@ public final class Skin {
                 line(img, color, 5, 24, 10, 24, 2.6f);
                 line(img, color, 38, 24, 43, 24, 2.6f);
             }
+            case "crosshair" -> {
+                disc(img, color, 24, 24, 2.5f);
+                line(img, color, 24, 8, 24, 17, 2.4f);
+                line(img, color, 24, 31, 24, 40, 2.4f);
+                line(img, color, 8, 24, 17, 24, 2.4f);
+                line(img, color, 31, 24, 40, 24, 2.4f);
+            }
             case "armordur" -> {
                 // escudo com barras de durabilidade
                 ringBox(img, color, 13, 9, 22, 17, 5, 2.6f);
@@ -786,6 +1017,29 @@ public final class Skin {
                 line(img, color, 18, 34, 34, 18, 2.6f);
                 line(img, color, 26, 40, 40, 26, 2.6f);
             }
+            case "speedfx" -> {
+                // túnel radial de alta velocidade
+                ring(img, color, 24, 24, 8, 2.2f);
+                line(img, color, 24, 4, 24, 11, 2.6f);
+                line(img, color, 24, 37, 24, 44, 2.6f);
+                line(img, color, 4, 24, 11, 24, 2.6f);
+                line(img, color, 37, 24, 44, 24, 2.6f);
+                line(img, color, 9, 9, 15, 15, 2.4f);
+                line(img, color, 39, 9, 33, 15, 2.4f);
+                line(img, color, 9, 39, 15, 33, 2.4f);
+                line(img, color, 39, 39, 33, 33, 2.4f);
+            }
+            case "ambience" -> {
+                // filtro / atmosfera cromática (dois círculos sobrepostos + brilho)
+                ring(img, color, 19, 24, 10, 2.5f);
+                ring(img, color, 29, 24, 10, 2.5f);
+                disc(img, color, 24, 24, 3.2f);
+            }
+            case "menublur" -> {
+                // camadas de vidro desfocadas
+                ringBox(img, color, 9, 12, 22, 18, 5, 2.5f);
+                capsule(img, color, 17, 19, 22, 18, 5);
+            }
             case "viewmodel" -> {
                 // mão/braço em primeira pessoa
                 ringBox(img, color, 14, 20, 16, 18, 5, 2.8f);
@@ -793,6 +1047,11 @@ public final class Skin {
                 capsule(img, color, 21, 26, 5, 10, 2.5f);
                 capsule(img, color, 27, 26, 4, 9, 2f);
                 capsule(img, color, 18, 9, 9, 11, 3);
+            }
+            case "close" -> {
+                // X geométrico perfeitamente simétrico
+                line(img, color, 15, 15, 33, 33, 3.2f);
+                line(img, color, 33, 15, 15, 33, 3.2f);
             }
             default -> {
                 ringBox(img, color, 10, 10, 28, 28, 7, 3.2f);
