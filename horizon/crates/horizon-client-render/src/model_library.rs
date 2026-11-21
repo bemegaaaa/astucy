@@ -16,6 +16,13 @@ pub struct ParsedModels {
     models: BTreeMap<String, Arc<CuboidModel>>,
     root: PathBuf,
 }
+fn valid_resource_location(namespace: &str, path: &str) -> bool {
+    let valid = |c: u8| c.is_ascii_lowercase() || c.is_ascii_digit() || b"_.-".contains(&c);
+    namespace.bytes().all(valid)
+        && !matches!(namespace, "" | "." | "..")
+        && path.bytes().all(|c| valid(c) || c == b'/')
+        && !path.split('/').any(|part| matches!(part, "" | "." | ".."))
+}
 /// Asset files under a content root, for models that name a file (obj).
 struct RootAssets(PathBuf);
 impl AssetReader for RootAssets {
@@ -24,12 +31,7 @@ impl AssetReader for RootAssets {
         // Only a resource location's characters, and no `.`/`..` step: an
         // .obj's `mtllib` names its .mtl as raw text, so it must not reach a
         // file outside the content root (`../..:x` as a namespace would).
-        let valid = |c: u8| c.is_ascii_lowercase() || c.is_ascii_digit() || b"_.-".contains(&c);
-        if !namespace.bytes().all(valid)
-            || matches!(namespace, "" | "." | "..")
-            || !path.bytes().all(|c| valid(c) || c == b'/')
-            || path.split('/').any(|part| matches!(part, "" | "." | ".."))
-        {
+        if !valid_resource_location(namespace, path) {
             return None;
         }
         horizon_core::prepared_files::read_to_string(
@@ -72,7 +74,9 @@ impl ParsedModels {
                         && let Ok(rel) = path.strip_prefix(&base)
                     {
                         let rel = rel.with_extension("").to_string_lossy().replace('\\', "/");
-                        files.push((format!("{namespace}:{rel}"), path));
+                        if valid_resource_location(&namespace, &rel) {
+                            files.push((format!("{namespace}:{rel}"), path));
+                        }
                     }
                 }
             }
@@ -259,16 +263,17 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(items.resolve("horizon:nested/child")?.elements().len(), 1);
-        // An unrelated bad item identifier must not make block preparation fail
-        // (which would trigger resource-pack rollback at a different stage).
+        // Non-resource-location filenames (spaces, uppercase, e.g. pack author notes)
+        // are skipped at discovery, matching vanilla PathPackResources.
         fixture.write("horizon:INVALID", "{}");
+        fixture.write("horizon:with spaces/note", "{}");
         let parsed = ParsedModels::load(&fixture.0);
         assert!(
             parsed
                 .block_library(&fixture.0, vec!["horizon:nested/child".into()])
                 .is_ok()
         );
-        assert!(parsed.into_item_library().is_err());
+        assert!(parsed.into_item_library().is_ok());
         Ok(())
     }
 
