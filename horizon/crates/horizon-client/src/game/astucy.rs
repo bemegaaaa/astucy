@@ -299,23 +299,22 @@ fn build_default_modules() -> Vec<AstucyMod> {
         AstucyMod::new("modmenu", "Mod Menu", "In-game mods & config", Utility, false, true, [0.5, 0.5]),
         AstucyMod::new("mousetweaks", "Mouse Tweaks", "Fast drag & wheel move", Utility, false, true, [0.5, 0.5]),
         AstucyMod::new("cit", "CIT Resewn (CIT)", "OptiFine custom item textures", Visuals, false, true, [0.5, 0.5]),
-        AstucyMod::new("combat18", "1.8.9 Combat", "Legacy PvP, block-hit & no cooldown", Combat, false, true, [0.5, 0.5]),
         // Extras de HUD
         AstucyMod::new("watermark", "Watermark", "Client watermark", Info, true, true, [0.500, 0.955]),
         AstucyMod::new("fpsgraph", "FPS Graph", "FPS sparkline", Info, true, true, [0.845, 0.400]),
         AstucyMod::new("realtime", "Real Time", "Local time clock", Info, true, true, [0.845, 0.560]),
     ];
 
-    // Preset padrão: Auto Sprint, FPS, Ping, CPS e CIT ativos (+ 1.8.9 Combat no modo 1.8.9)
+    // Preset padrão: Auto Sprint, FPS, Ping, CPS e CIT ativos (+ 1.8.9 Combat apenas no modo 1.8.9)
     for id in ["sprint", "fps", "ping", "cps", "cit"] {
         if let Some(m) = list.iter_mut().find(|m| m.id == id) {
             m.enabled = true;
         }
     }
-    if horizon_core::version::is_189_mode()
-        && let Some(m) = list.iter_mut().find(|m| m.id == "combat18")
-    {
-        m.enabled = true;
+    if horizon_core::version::is_189_mode() {
+        let mut c18 = AstucyMod::new("combat18", "1.8.9 Combat", "Legacy PvP, block-hit & no cooldown", Combat, false, true, [0.5, 0.5]);
+        c18.enabled = true;
+        list.push(c18);
     }
     list
 }
@@ -729,7 +728,7 @@ impl Game<'_> {
         let fullbright = self.pvp.astucy.is_on("fullbright");
         let auto_sprint = self.pvp.astucy.is_on("sprint");
         let toggle_sneak = self.pvp.astucy.is_on("sneak");
-        let combat_189 = horizon_core::version::is_189_mode() || self.pvp.astucy.is_on("combat18");
+        let combat_189 = horizon_core::version::is_189_mode();
         let viewmodel = self.pvp.astucy.find("viewmodel").cloned();
 
         self.settings.extras.pvp.crosshair.custom = crosshair;

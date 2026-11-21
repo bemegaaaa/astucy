@@ -758,12 +758,9 @@ impl Game<'_> {
     }
 }
 
-/// Fullbright is held off on another's server, where it would light what the server shows
-/// dark (#3823): a connection with no save of this window's own (`Remote::save_folder`), as a
-/// multiplayer server or a LAN guest has. Single player, a LAN host, a splitscreen seat in
-/// P1's world and Replay Studio keep it. `connection`: none, or whether it plays a save.
-fn fullbright_held(connection: Option<bool>, studio: bool) -> bool {
-    connection == Some(false) && !studio
+/// Fullbright is allowed everywhere in Astucy (singleplayer, LAN, and multiplayer servers).
+fn fullbright_held(_connection: Option<bool>, _studio: bool) -> bool {
+    false
 }
 
 /// The named device can be a connected pad that has not driven the game yet.
@@ -806,14 +803,10 @@ mod fullbright_tests {
     use super::fullbright_held;
 
     #[test]
-    fn fullbright_is_held_only_on_another_servers_world() {
-        // The title screen, with no connection.
+    fn fullbright_is_allowed_in_all_worlds() {
         assert!(!fullbright_held(None, false));
-        // Single player and a LAN host play their own save; so does a splitscreen seat in P1's.
         assert!(!fullbright_held(Some(true), false));
-        // A multiplayer server, or another player's world opened to LAN.
-        assert!(fullbright_held(Some(false), false));
-        // Replay Studio plays a recording, not a server.
+        assert!(!fullbright_held(Some(false), false));
         assert!(!fullbright_held(Some(false), true));
     }
 }

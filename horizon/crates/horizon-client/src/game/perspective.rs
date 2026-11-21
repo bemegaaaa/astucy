@@ -475,8 +475,7 @@ impl Game<'_> {
         let using_off_hand = self
             .using
             .is_some_and(|(slot, _)| slot == super::shield::OFFHAND_SLOT);
-        let legacy_sword_block = (self.settings.extras.pvp.combat.legacy
-            || horizon_core::version::is_189_mode())
+        let legacy_sword_block = horizon_core::version::is_189_mode()
             && self.right
             && self.screen == Screen::Playing
             && self.inventory[self.selected]

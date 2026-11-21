@@ -448,7 +448,7 @@ impl Game<'_> {
             } else {
                 pose
             };
-            if (self.settings.extras.pvp.combat.legacy || horizon_core::version::is_189_mode())
+            if horizon_core::version::is_189_mode()
                 && !state.layers.is_empty()
                 && state
                     .layers
