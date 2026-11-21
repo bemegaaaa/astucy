@@ -154,6 +154,7 @@ fn fixture() -> (Scratch, Assets, RenderAssets, MeshTables, Biomes) {
     let tables = MeshTables {
         info,
         solid: vec![false; 3],
+        uncullable: vec![false; 3],
         full_faces: vec![0; 3],
         visibility: FaceVisibility::empty(),
         water_still: 0,
@@ -301,4 +302,58 @@ fn terrain_source_cpu_partial_metadata_never_inherits_a_previous_face() {
     );
     mesh.clear();
     assert!(mesh.solid_sources.is_empty());
+}
+
+#[test]
+fn enclosed_uncullable_block_and_xray_non_occluding_section_stay_visible() {
+    let (_scratch, assets, render, mut tables, biomes) = fixture();
+    // State 1 represents an enclosed block with `cull: None` faces surrounded by `solid` state 2.
+    tables.solid = vec![false, true, true];
+    tables.uncullable = vec![false, true, false];
+    let mut chunk = Chunk::with_layout(0, 0, crate::chunk::ColumnLayout::new(0, 16).unwrap());
+    for y in 0..16 {
+        for z in 0..16 {
+            for x in 0..16 {
+                chunk.set(x, y, z, 2);
+            }
+        }
+    }
+    chunk.set(4, 4, 4, 1);
+    let region = [
+        [None, None, None],
+        [None, Some(&chunk), None],
+        [None, None, None],
+    ];
+    let mesh_with = |tables: &MeshTables| {
+        Mesher {
+            nether_shading: false,
+            shader_pack_lighting: false,
+            separate_ao: false,
+            shader_pack: false,
+            assets: &assets,
+            render: &render,
+            tables,
+            biomes: &biomes,
+            visibility: FaceVisibility::empty(),
+            zoom: BiomeZoom::new(0),
+            blend_radius: 0,
+            smooth_lighting: false,
+            cutout_leaves: true,
+            opaque_ice: false,
+            translucent_layers: &[],
+            leaf_culling: LeafCullingMode::Off,
+        }
+        .mesh(&region, 0)
+    };
+    let enclosed_mesh = mesh_with(&tables);
+    assert_ne!(
+        enclosed_mesh.solid.len(),
+        0,
+        "enclosed uncullable block must not be skipped by hidden mask"
+    );
+
+    // Non-occluding X-Ray filler (solid = false) keeps all section faces connected in VisGraph.
+    tables.solid = vec![false; 3];
+    let open_mesh = mesh_with(&tables);
+    assert_eq!(open_mesh.visibility, ALL_VISIBLE);
 }

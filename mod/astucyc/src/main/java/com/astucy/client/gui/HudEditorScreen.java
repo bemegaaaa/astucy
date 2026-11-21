@@ -129,11 +129,11 @@ public class HudEditorScreen extends Screen {
 
     /** Engrenagenzinha ao lado do chip: abre as opcoes do modulo. */
     private void drawGear(GuiGraphicsExtractor g, int x, int y) {
-        int s = 14;
+        int s = 18;
         boolean h = mx >= x && mx < x + s && my >= y && my < y + s;
-        Ui.rrect(g, x, y, s, s, h ? 0xE6131A22 : 0xCC0C1117);
-        Ui.rframe(g, x, y, s, s, h ? 0x66FFFFFF : 0x24FFFFFF);
-        Ui.icon(g, "options", x + 2, y + 2, 10, h ? 0xFFFFFFFF : 0xB3FFFFFF);
+        Ui.rrect(g, x, y, s, s, h ? 0xEE131A22 : 0xD60C1117, 5);
+        Ui.rframe(g, x, y, s, s, h ? 0x70FFFFFF : 0x2AFFFFFF, 5);
+        Ui.icon(g, "options", x + 3, y + 3, 12, h ? 0xFFFFFFFF : 0xBFFFFFFF);
     }
 
     /**

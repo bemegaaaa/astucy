@@ -5992,7 +5992,7 @@ impl Game<'_> {
                     let inputs = hud_layout::HotbarInputs {
                         selected: g.selected as i32,
                         right_handed: !g.settings.main_hand_left,
-                        offhand: g.offhand.is_some(),
+                        offhand: !horizon_core::version::is_189_mode() && g.offhand.is_some(),
                         slots: std::array::from_fn(|i| {
                             g.inventory[i]
                                 .as_ref()
@@ -6424,6 +6424,16 @@ impl Game<'_> {
                         "gui/container/inventory"
                     };
                     part(batch, texture, 0.0, 0.0, 176.0, 166.0, ox, oy);
+                    if horizon_core::version::is_189_mode() && self.craft_size != 3 {
+                        batch.fill(
+                            &self.gui.atlas,
+                            ox + 76.0,
+                            oy + 61.0,
+                            18.0,
+                            18.0,
+                            rgba(198, 198, 198, 255),
+                        );
+                    }
                     let title = self.translate("container.crafting", "Crafting");
                     screen_info::name_container(|| title.clone());
                     let tx = if self.craft_size == 3 { 29.0 } else { 97.0 };

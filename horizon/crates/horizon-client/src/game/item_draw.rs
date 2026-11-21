@@ -377,19 +377,24 @@ impl Game<'_> {
     ) -> ItemRenderState {
         let level = self.item_level();
         let renderer = &self.pack.item_renderer;
-        let (rule, glint) = renderer.cit.as_ref().map_or((None, None), |cit| {
-            let item_max = self
-                .res
-                .items()
-                .get(&stack.item)
-                .map_or(0, |i| i.max_damage);
-            let max_damage = item_render::cit::stack_max_damage(stack, item_max);
-            (
-                cit.rules.select(CitKind::Item, stack, hand, max_damage),
-                cit.rules
-                    .glint(stack, hand, max_damage, self.has_foil(stack)),
-            )
-        });
+        let cit_enabled = self.pvp.astucy.mods.is_empty() || self.pvp.astucy.is_on("cit");
+        let (rule, glint) = if cit_enabled {
+            renderer.cit.as_ref().map_or((None, None), |cit| {
+                let item_max = self
+                    .res
+                    .items()
+                    .get(&stack.item)
+                    .map_or(0, |i| i.max_damage);
+                let max_damage = item_render::cit::stack_max_damage(stack, item_max);
+                (
+                    cit.rules.select(CitKind::Item, stack, hand, max_damage),
+                    cit.rules
+                        .glint(stack, hand, max_damage, self.has_foil(stack)),
+                )
+            })
+        } else {
+            (None, None)
+        };
         let mut state = renderer.resolve_with_rule(
             &item_render::stack_view(stack),
             display,

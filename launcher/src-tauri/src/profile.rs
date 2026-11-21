@@ -46,12 +46,22 @@ pub fn rust_addon_enabled(id: &str, default_on: bool) -> bool {
     let Ok(root) = profile_root() else { return default_on; };
     let data = read_json(&root.join("astucy-rust.json"));
     let idx = data.get("active_profile").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-    data.get("profiles")
+    let arr = data
+        .get("profiles")
         .and_then(|p| p.get(idx))
-        .and_then(|arr| arr.as_array())
-        .and_then(|arr| arr.iter().find(|m| m.get("id").and_then(|v| v.as_str()) == Some(id)))
-        .and_then(|m| m.get("enabled").and_then(|v| v.as_bool()))
-        .unwrap_or(default_on)
+        .and_then(|arr| arr.as_array());
+    arr.and_then(|arr| {
+        arr.iter()
+            .find(|m| m.get("id").and_then(|v| v.as_str()) == Some(id))
+            .or_else(|| {
+                (id == "cit").then(|| {
+                    arr.iter()
+                        .find(|m| m.get("id").and_then(|v| v.as_str()) == Some("itemrespawn"))
+                })?
+            })
+    })
+    .and_then(|m| m.get("enabled").and_then(|v| v.as_bool()))
+    .unwrap_or(default_on)
 }
 
 pub fn set_rust_addon_enabled(id: &str, on: bool) -> Result<(), String> {
@@ -111,19 +121,92 @@ fn config_file() -> Result<PathBuf, String> {
 }
 
 /* ==================================================================
- * auto-update do módulo do próprio Astucy
+ * auto-update do módulo do próprio Astucy (multi-versão)
  * ================================================================== */
 
-const BUNDLED_CORE_MOD: &[u8] =
+const BUNDLED_MOD_26: &[u8] =
     include_bytes!("../../../mod/astucyc/build/libs/astucyc-0.1.0.jar");
+const BUNDLED_MOD_1214: &[u8] =
+    include_bytes!("../../../mod/astucyc-1.21.4/build/libs/astucyc-0.1.0-1.21.4.jar");
+const BUNDLED_MOD_1201: &[u8] =
+    include_bytes!("../../../mod/astucyc-1.20.1/build/libs/astucyc-0.1.0-1.20.1.jar");
+const BUNDLED_MOD_189: &[u8] =
+    include_bytes!("../../../mod/astucyc-1.8.9/build/libs/astucyc-0.1.0.jar");
+const BUNDLED_MOD_1710: &[u8] =
+    include_bytes!("../../../mod/astucyc-1.7.10/build/libs/astucyc-0.1.0.jar");
 
-/// Localiza `mod/astucyc/build/libs/astucyc-0.1.0.jar` no workspace se existir.
-fn find_workspace_core_mod() -> Option<PathBuf> {
-    let rel = Path::new("mod")
-        .join("astucyc")
-        .join("build")
-        .join("libs")
-        .join("astucyc-0.1.0.jar");
+#[derive(Clone, Copy)]
+enum RequiredApi {
+    ModrinthFabricApi,
+    LegacyFabricApi { version: &'static str },
+}
+
+struct CoreModSpec {
+    jar_name: &'static str,
+    workspace_rel: &'static str,
+    bundled: &'static [u8],
+    required_api: RequiredApi,
+}
+
+/// Mapeia a versão base do Minecraft para o jar do Astucy correspondente.
+fn core_mod_spec(version: &str) -> Option<CoreModSpec> {
+    let ver = version.trim();
+    if ver.is_empty() || ver.contains("Rust") || ver == "26.3-rust" {
+        return None;
+    }
+    let major = ver.split('.').next().and_then(|s| s.parse::<u32>().ok());
+    if major.map(|m| m >= 26).unwrap_or(false) {
+        return Some(CoreModSpec {
+            jar_name: "astucyc-0.1.0.jar",
+            workspace_rel: "mod/astucyc/build/libs/astucyc-0.1.0.jar",
+            bundled: BUNDLED_MOD_26,
+            required_api: RequiredApi::ModrinthFabricApi,
+        });
+    }
+    match ver {
+        "1.21.4" => Some(CoreModSpec {
+            jar_name: "astucyc-0.1.0-1.21.4.jar",
+            workspace_rel: "mod/astucyc-1.21.4/build/libs/astucyc-0.1.0-1.21.4.jar",
+            bundled: BUNDLED_MOD_1214,
+            required_api: RequiredApi::ModrinthFabricApi,
+        }),
+        "1.20.1" => Some(CoreModSpec {
+            jar_name: "astucyc-0.1.0-1.20.1.jar",
+            workspace_rel: "mod/astucyc-1.20.1/build/libs/astucyc-0.1.0-1.20.1.jar",
+            bundled: BUNDLED_MOD_1201,
+            required_api: RequiredApi::ModrinthFabricApi,
+        }),
+        "1.8.9" => Some(CoreModSpec {
+            jar_name: "astucyc-0.1.0.jar",
+            workspace_rel: "mod/astucyc-1.8.9/build/libs/astucyc-0.1.0.jar",
+            bundled: BUNDLED_MOD_189,
+            required_api: RequiredApi::LegacyFabricApi { version: "1.13.5+1.8.9" },
+        }),
+        "1.7.10" => Some(CoreModSpec {
+            jar_name: "astucyc-0.1.0.jar",
+            workspace_rel: "mod/astucyc-1.7.10/build/libs/astucyc-0.1.0.jar",
+            bundled: BUNDLED_MOD_1710,
+            required_api: RequiredApi::LegacyFabricApi { version: "1.13.5+1.7.10" },
+        }),
+        _ => None,
+    }
+}
+
+pub fn is_core_mod_name(file_or_name: &str) -> bool {
+    let lower = file_or_name.to_ascii_lowercase();
+    lower.starts_with("astucyc")
+        || lower.starts_with("fabric-api")
+        || lower.starts_with("legacy-fabric-api")
+}
+
+/// Indica se a versão possui mod do Astucy Client (26.x, 1.21.4, 1.20.1, 1.8.9, 1.7.10).
+pub fn has_client_mod(version: &str) -> bool {
+    core_mod_spec(version).is_some()
+}
+
+/// Localiza o `.jar` no workspace em desenvolvimento, se existir.
+fn find_workspace_core_mod(rel_posix: &str) -> Option<PathBuf> {
+    let rel: PathBuf = rel_posix.split('/').collect();
     for start in [
         std::env::current_exe().ok(),
         std::env::current_dir().ok(),
@@ -143,40 +226,153 @@ fn find_workspace_core_mod() -> Option<PathBuf> {
     None
 }
 
-/// Mantém o `astucyc-0.1.0.jar` do perfil sincronizado com a build local/embutida
-/// mais recente (sem sobrescrever com release antiga do GitHub).
-pub fn sync_core_mod() -> Result<(), String> {
-    const CORE_NAME: &str = "astucyc-0.1.0.jar";
-
-    let dir = mods_dir()?;
-    let dest = dir.join(CORE_NAME);
-
-    let fresh_bytes: Option<Vec<u8>> = find_workspace_core_mod()
-        .and_then(|p| std::fs::read(p).ok())
-        .or_else(|| {
-            if !BUNDLED_CORE_MOD.is_empty() {
-                Some(BUNDLED_CORE_MOD.to_vec())
-            } else {
-                None
-            }
-        });
-
-    if let Some(bytes) = fresh_bytes {
-        let same = std::fs::read(&dest)
-            .map(|existing| existing == bytes)
-            .unwrap_or(false);
-        if same {
-            return Ok(());
-        }
-        let tmp = dir.join(".astucyc-update.jar");
-        std::fs::write(&tmp, &bytes).map_err(|e| format!("gravar mod: {e}"))?;
-        if std::fs::rename(&tmp, &dest).is_err() {
-            let _ = std::fs::remove_file(&dest);
-            std::fs::rename(&tmp, &dest).map_err(|e| format!("instalar mod: {e}"))?;
-        }
+/// Mantém o jar do Astucy na pasta de mods da versão (`mods/<versão>/`)
+/// sincronizado com a build local/embutida correspondente.
+pub fn sync_core_mod(version: &str) -> Result<(), String> {
+    let Some(spec) = core_mod_spec(version) else {
         return Ok(());
+    };
+
+    let dir = mods_dir_for(version)?;
+    let dest = dir.join(spec.jar_name);
+
+    let fresh_bytes: Option<Vec<u8>> = find_workspace_core_mod(spec.workspace_rel)
+        .and_then(|p| std::fs::read(p).ok())
+        .or_else(|| (!spec.bundled.is_empty()).then(|| spec.bundled.to_vec()));
+
+    let Some(bytes) = fresh_bytes else {
+        return Ok(());
+    };
+
+    // Remove jars antigos do astucyc com outro nome na mesma pasta de versão
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let fname = entry.file_name().to_string_lossy().to_string();
+            let lower = fname.to_ascii_lowercase();
+            if lower.starts_with("astucyc")
+                && (lower.ends_with(".jar") || lower.ends_with(".jar.disabled"))
+                && fname != spec.jar_name
+            {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
     }
 
+    let same = std::fs::read(&dest)
+        .map(|existing| existing == bytes)
+        .unwrap_or(false);
+    if same {
+        return Ok(());
+    }
+    let tmp = dir.join(".astucyc-update.jar");
+    std::fs::write(&tmp, &bytes).map_err(|e| format!("gravar mod: {e}"))?;
+    if std::fs::rename(&tmp, &dest).is_err() {
+        let _ = std::fs::remove_file(&dest);
+        std::fs::rename(&tmp, &dest).map_err(|e| format!("instalar mod: {e}"))?;
+    }
+    Ok(())
+}
+
+/// Garante que a pasta de mods da versão tenha `fabric-api` ou `legacy-fabric-api`
+/// compatível (`26.x`, `1.21.4`, `1.20.1`, `1.8.9`, `1.7.10`).
+pub fn ensure_fabric_api(version: &str) -> Result<(), String> {
+    let Some(spec) = core_mod_spec(version) else {
+        return Ok(());
+    };
+
+    let prefix = match spec.required_api {
+        RequiredApi::ModrinthFabricApi => "fabric-api",
+        RequiredApi::LegacyFabricApi { .. } => "legacy-fabric-api",
+    };
+
+    let dir = mods_dir_for(version)?;
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let fname = entry.file_name().to_string_lossy().to_string();
+            let lower = fname.to_ascii_lowercase();
+            if !lower.starts_with(prefix) {
+                continue;
+            }
+            if lower.ends_with(".jar") {
+                return Ok(());
+            }
+            if lower.ends_with(".jar.disabled") {
+                let restored = dir.join(&fname[..fname.len() - ".disabled".len()]);
+                if !restored.exists() && std::fs::rename(&path, &restored).is_ok() {
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    let client = http_client()?;
+    let (fname, furl, label) = match spec.required_api {
+        RequiredApi::ModrinthFabricApi => {
+            let versions = modrinth_versions(&client, "fabric-api", version.trim())?;
+            let empty = Vec::new();
+            let list = versions.as_array().unwrap_or(&empty);
+            let picked = list
+                .iter()
+                .find(|v| v.get("version_type").and_then(|t| t.as_str()) == Some("release"))
+                .or_else(|| list.first())
+                .ok_or_else(|| format!("Fabric API não encontrado no Modrinth para {version}"))?;
+
+            let files = picked
+                .get("files")
+                .and_then(|f| f.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let chosen = files
+                .iter()
+                .find(|f| f.get("primary").and_then(|p| p.as_bool()).unwrap_or(false))
+                .or_else(|| files.first())
+                .ok_or_else(|| format!("Fabric API sem arquivo no Modrinth para {version}"))?;
+
+            let fname = chosen
+                .get("filename")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string();
+            let furl = chosen
+                .get("url")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string();
+            if fname.is_empty() || furl.is_empty() {
+                return Err(format!("Fabric API inválido no Modrinth para {version}"));
+            }
+            (fname, furl, "Fabric API")
+        }
+        RequiredApi::LegacyFabricApi { version: api_ver } => {
+            let fname = format!("legacy-fabric-api-{api_ver}.jar");
+            let furl = format!(
+                "https://maven.legacyfabric.net/net/legacyfabric/legacy-fabric-api/legacy-fabric-api/{api_ver}/{fname}"
+            );
+            (fname, furl, "Legacy Fabric API")
+        }
+    };
+
+    let bytes = client
+        .get(&furl)
+        .send()
+        .and_then(|r| r.error_for_status())
+        .and_then(|r| r.bytes())
+        .map_err(|e| format!("baixar {label} ({version}): {e}"))?;
+    if bytes.len() < 1024 || !bytes.starts_with(b"PK") {
+        return Err(format!("{label} baixado inválido para {version}"));
+    }
+
+    let tmp = dir.join(format!(".{prefix}-tmp.jar"));
+    let dest = dir.join(&fname);
+    std::fs::write(&tmp, &bytes).map_err(|e| format!("gravar {label}: {e}"))?;
+    if std::fs::rename(&tmp, &dest).is_err() {
+        let _ = std::fs::remove_file(&dest);
+        std::fs::rename(&tmp, &dest).map_err(|e| format!("instalar {label}: {e}"))?;
+    }
     Ok(())
 }
 
@@ -247,7 +443,7 @@ pub fn list_mods() -> Result<Vec<ModEntry>, String> {
         } else {
             continue;
         };
-        let core = name.to_lowercase().starts_with("astucyc") || name.to_lowercase().starts_with("fabric-api");
+        let core = is_core_mod_name(&name);
         let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
         let slug = map
             .iter()
@@ -263,7 +459,7 @@ pub fn list_mods() -> Result<Vec<ModEntry>, String> {
 #[tauri::command]
 pub fn set_mod_enabled(file: String, enabled: bool) -> Result<(), String> {
     let lower = file.to_lowercase();
-    if lower.starts_with("astucyc") || lower.starts_with("fabric-api") {
+    if is_core_mod_name(&file) {
         return Err("esse é o núcleo do cliente (astucyc + Fabric API)".into());
     }
     let dir = mods_dir()?;
@@ -607,4 +803,62 @@ pub async fn modrinth_search(
     })
     .await
     .map_err(|e| format!("thread: {e}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn core_mod_specs_cover_all_supported_versions() {
+        for ver in ["26.2", "26.3", "1.21.4", "1.20.1", "1.8.9", "1.7.10"] {
+            let spec = core_mod_spec(ver).expect(ver);
+            assert!(
+                spec.bundled.starts_with(b"PK"),
+                "embedded jar for {ver} must be a valid zip/jar"
+            );
+            assert!(
+                spec.bundled.len() > 50_000,
+                "embedded jar for {ver} looks unexpectedly small"
+            );
+            assert!(has_client_mod(ver));
+        }
+
+        assert!(core_mod_spec("26.3 (Rust)").is_none());
+        assert!(core_mod_spec("1.19.4").is_none());
+        assert!(core_mod_spec("26w13a").is_none());
+        assert!(core_mod_spec("").is_none());
+    }
+
+    #[test]
+    fn core_mod_required_api_matches_loader() {
+        assert!(matches!(
+            core_mod_spec("26.2").unwrap().required_api,
+            RequiredApi::ModrinthFabricApi
+        ));
+        assert!(matches!(
+            core_mod_spec("1.21.4").unwrap().required_api,
+            RequiredApi::ModrinthFabricApi
+        ));
+        assert!(matches!(
+            core_mod_spec("1.20.1").unwrap().required_api,
+            RequiredApi::ModrinthFabricApi
+        ));
+        assert!(matches!(
+            core_mod_spec("1.8.9").unwrap().required_api,
+            RequiredApi::LegacyFabricApi { version: "1.13.5+1.8.9" }
+        ));
+        assert!(matches!(
+            core_mod_spec("1.7.10").unwrap().required_api,
+            RequiredApi::LegacyFabricApi { version: "1.13.5+1.7.10" }
+        ));
+    }
+
+    #[test]
+    fn core_mod_name_protects_all_core_jars() {
+        assert!(is_core_mod_name("astucyc-0.1.0.jar"));
+        assert!(is_core_mod_name("fabric-api-0.92.12+1.20.1.jar"));
+        assert!(is_core_mod_name("legacy-fabric-api-1.13.5+1.8.9.jar"));
+        assert!(!is_core_mod_name("sodium-fabric-0.6.0.jar"));
+    }
 }

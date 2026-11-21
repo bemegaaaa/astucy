@@ -238,19 +238,13 @@ impl Game<'_> {
         let off_hand_empty = items[1].is_none();
         // Combat feel Legacy: a sword is held up while use is held, as 1.8.9's block looked.
         // Only the picture changes: the clicks and what they send stay 26.3's.
-        let legacy_block = self.settings.extras.pvp.combat.legacy
+        let legacy_block = (self.settings.extras.pvp.combat.legacy
+            || horizon_core::version::is_189_mode())
             && self.right
             && self.screen == Screen::Playing
             && items[0]
                 .as_ref()
-                .is_some_and(|s| s.item.ends_with("_sword"))
-            && match used_hand {
-                None => true,
-                Some(Hand::Off) => items[1]
-                    .as_ref()
-                    .is_some_and(|s| &*s.item == "minecraft:shield"),
-                Some(Hand::Main) => false,
-            };
+                .is_some_and(|s| s.item.ends_with("_sword"));
         for (i, (hand, item)) in Hand::BOTH.into_iter().zip(items).enumerate() {
             if !shown[i] {
                 continue;
@@ -449,7 +443,12 @@ impl Game<'_> {
             };
             let state = self.resolve_item_in_hand(&stack, context, Some(&owner), seed, cit_hand);
             // Combat feel Legacy: 1.8.9's pose for a flat item drawn with vanilla's display.
-            if self.settings.extras.pvp.combat.legacy
+            let pose = if hand == Hand::Main && legacy_block {
+                horizon_client::first_person::ItemPose::Using
+            } else {
+                pose
+            };
+            if (self.settings.extras.pvp.combat.legacy || horizon_core::version::is_189_mode())
                 && !state.layers.is_empty()
                 && state
                     .layers

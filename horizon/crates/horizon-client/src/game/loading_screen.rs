@@ -96,8 +96,12 @@ impl Loading {
             .map_or([1280, 720], |o| o.window_size)
             .map(f64::from);
         self.fullscreen = horizon_client::window::FullscreenState::new(fullscreen);
+        let title = format!(
+            "Astucy Client · {} (Rust Engine)",
+            horizon_core::version::astucy_mc_version()
+        );
         let attributes = horizon_client::window::with_icon(
-            Window::default_attributes().with_title("Astucy Client · 26.3 (Rust Engine)"),
+            Window::default_attributes().with_title(title),
         );
         // Wayland names the window by its app id, which the horizon.desktop entry matches.
         #[cfg(target_os = "linux")]

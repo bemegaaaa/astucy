@@ -882,13 +882,17 @@ fn wordmark(atlas: &HudAtlas, batch: &mut HudBatch) {
     let block = size * 1.45 + small * 0.6 + small * 1.5;
     let top = (ui.h - block) / 2.0;
     ui.text_centered(Face::SemiBold, size, ui.w / 2.0, top, BOOT_TEXT, "ASTUCY");
+    let tagline = format!(
+        "Astucy Client · Rust Engine {}",
+        horizon_core::version::astucy_mc_version()
+    );
     ui.text_centered(
         Face::Mono,
         small,
         ui.w / 2.0,
         top + size * 1.45 + small * 0.6,
         color::hex(0x4ade80, 220),
-        "Astucy Client · Rust Engine 26.3",
+        &tagline,
     );
     let (w, top_gui, size_gui) = (
         ui.batch.width,

@@ -857,10 +857,16 @@ public final class Skin {
                 line(img, color, 11f, 27f, 19f, 35f, 2.2f);
                 line(img, color, 37f, 27f, 29f, 35f, 2.2f);
             }
-            case "armor" -> {
-                ringBox(img, color, 13, 11, 22, 19, 5, 2.8f);
-                line(img, color, 13, 30, 24, 39, 2.6f);
-                line(img, color, 35, 30, 24, 39, 2.6f);
+            case "armor", "armor_chest" -> {
+                capsule(img, color, 6, 9, 13, 12, 3);
+                capsule(img, color, 29, 9, 13, 12, 3);
+                capsule(img, color, 13, 14, 22, 26, 4);
+                capsule(img, color, 17, 9, 14, 7, 2);
+            }
+            case "moon" -> {
+                design(img, color, (qx, qy) -> Math.max(
+                        sdDisc(qx, qy, 24f, 24f, 14f),
+                        -sdDisc(qx, qy, 30f, 18f, 12f)));
             }
             case "hora" -> {
                 ring(img, color, 24, 24, 15, 3);
@@ -1047,6 +1053,11 @@ public final class Skin {
                 capsule(img, color, 21, 26, 5, 10, 2.5f);
                 capsule(img, color, 27, 26, 4, 9, 2f);
                 capsule(img, color, 18, 9, 9, 11, 3);
+            }
+            case "cit" -> {
+                ringBox(img, color, 11, 14, 26, 21, 5, 2.6f);
+                capsule(img, color, 17, 9, 14, 6, 3f);
+                design(img, color, (qx, qy) -> Math.abs(qx - 24f) + Math.abs(qy - 24.5f) - 5.5f);
             }
             case "close" -> {
                 // X geométrico perfeitamente simétrico

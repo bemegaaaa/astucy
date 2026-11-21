@@ -128,6 +128,9 @@ fn sprite(name: &str) -> String {
 impl Game<'_> {
     /// The book the open screen has, if any.
     pub(super) fn active_book(&self) -> Option<BookType> {
+        if horizon_core::version::is_189_mode() {
+            return None;
+        }
         if self.screen != Screen::Inventory || self.station.is_some() {
             return None;
         }
@@ -227,7 +230,7 @@ impl Game<'_> {
     /// unlocked: its crafting station and result join the toast still
     /// queued or shown, or a new one.
     pub(super) fn recipe_toast(&mut self, recipes: &[String]) {
-        if recipes.is_empty() || self.adv.quiet {
+        if horizon_core::version::is_189_mode() || recipes.is_empty() || self.adv.quiet {
             return;
         }
         self.ensure_book();

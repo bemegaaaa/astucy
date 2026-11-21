@@ -713,7 +713,286 @@ fn pack_files(pack: &Pack) -> io::Result<BTreeMap<String, Provided>> {
             }
         }
     }
+    bridge_legacy_pack_files(&mut out);
     Ok(out)
+}
+
+fn legacy_item_texture_names(stem: &str) -> &'static [&'static str] {
+    match stem {
+        "gold_sword" => &["golden_sword"],
+        "gold_axe" => &["golden_axe"],
+        "gold_pickaxe" => &["golden_pickaxe"],
+        "gold_shovel" => &["golden_shovel"],
+        "gold_hoe" => &["golden_hoe"],
+        "gold_helmet" => &["golden_helmet"],
+        "gold_chestplate" => &["golden_chestplate"],
+        "gold_leggings" => &["golden_leggings"],
+        "gold_boots" => &["golden_boots"],
+        "gold_horse_armor" => &["golden_horse_armor"],
+        "wood_sword" => &["wooden_sword"],
+        "wood_axe" => &["wooden_axe"],
+        "wood_pickaxe" => &["wooden_pickaxe"],
+        "wood_shovel" => &["wooden_shovel"],
+        "wood_hoe" => &["wooden_hoe"],
+        "apple_golden" => &["golden_apple"],
+        "carrot_golden" => &["golden_carrot"],
+        "melon_speckled" => &["glistering_melon_slice"],
+        "beef_raw" => &["beef"],
+        "beef_cooked" => &["cooked_beef"],
+        "porkchop_raw" => &["porkchop"],
+        "porkchop_cooked" => &["cooked_porkchop"],
+        "chicken_raw" => &["chicken"],
+        "chicken_cooked" => &["cooked_chicken"],
+        "mutton_raw" => &["mutton"],
+        "mutton_cooked" => &["cooked_mutton"],
+        "rabbit_raw" => &["rabbit"],
+        "rabbit_cooked" => &["cooked_rabbit"],
+        "fish_cod_raw" | "fish_raw" => &["cod"],
+        "fish_cod_cooked" | "fish_cooked" => &["cooked_cod"],
+        "fish_salmon_raw" => &["salmon"],
+        "fish_salmon_cooked" => &["cooked_salmon"],
+        "fish_clownfish_raw" => &["tropical_fish"],
+        "fish_pufferfish_raw" => &["pufferfish"],
+        "potato_baked" => &["baked_potato"],
+        "potato_poisonous" => &["poisonous_potato"],
+        "potion_bottle_drinkable" => &["potion"],
+        "potion_bottle_empty" => &["glass_bottle"],
+        "potion_bottle_splash" => &["splash_potion"],
+        "potion_bottle_lingering" => &["lingering_potion"],
+        "bow_standby" => &["bow"],
+        "fishing_rod_uncast" => &["fishing_rod"],
+        "book_normal" => &["book"],
+        "book_enchanted" => &["enchanted_book"],
+        "book_writable" => &["writable_book"],
+        "book_written" => &["written_book"],
+        "bucket_empty" => &["bucket"],
+        "bucket_water" => &["water_bucket"],
+        "bucket_lava" => &["lava_bucket"],
+        "bucket_milk" => &["milk_bucket"],
+        "seeds_wheat" => &["wheat_seeds"],
+        "seeds_pumpkin" => &["pumpkin_seeds"],
+        "seeds_melon" => &["melon_seeds"],
+        "fireball" => &["fire_charge"],
+        "slimeball" => &["slime_ball"],
+        "reeds" => &["sugar_cane"],
+        "wooden_armorstand" => &["armor_stand"],
+        "boat" => &["oak_boat"],
+        "bed" => &["red_bed"],
+        "door_wood" => &["oak_door"],
+        "redstone_dust" => &["redstone"],
+        "fireworks" => &["firework_rocket"],
+        "fireworks_charge" => &["firework_star"],
+        "fireworks_charge_overlay" => &["firework_star_overlay"],
+        "totem" => &["totem_of_undying"],
+        _ => &[],
+    }
+}
+
+fn legacy_color(c: &str) -> &str {
+    match c {
+        "silver" => "light_gray",
+        _ => c,
+    }
+}
+
+fn legacy_wood(w: &str) -> &str {
+    match w {
+        "big_oak" | "roofed_oak" => "dark_oak",
+        _ => w,
+    }
+}
+
+fn legacy_block_texture_names(stem: &str) -> Vec<String> {
+    if let Some(c) = stem.strip_prefix("wool_colored_") {
+        return vec![format!("{}_wool", legacy_color(c))];
+    }
+    if let Some(c) = stem.strip_prefix("glass_pane_top_") {
+        return vec![format!("{}_stained_glass_pane_top", legacy_color(c))];
+    }
+    if let Some(c) = stem.strip_prefix("glass_") {
+        if c != "pane_top" {
+            return vec![format!("{}_stained_glass", legacy_color(c))];
+        }
+    }
+    if let Some(c) = stem.strip_prefix("hardened_clay_stained_") {
+        return vec![format!("{}_terracotta", legacy_color(c))];
+    }
+    if let Some(w) = stem.strip_prefix("planks_") {
+        return vec![format!("{}_planks", legacy_wood(w))];
+    }
+    if let Some(w) = stem.strip_prefix("log_").and_then(|s| s.strip_suffix("_top")) {
+        return vec![format!("{}_log_top", legacy_wood(w))];
+    }
+    if let Some(w) = stem.strip_prefix("log_") {
+        return vec![format!("{}_log", legacy_wood(w))];
+    }
+    if let Some(w) = stem
+        .strip_prefix("leaves_")
+        .filter(|s| !s.ends_with("_opaque"))
+    {
+        return vec![format!("{}_leaves", legacy_wood(w))];
+    }
+    if let Some(w) = stem.strip_prefix("sapling_") {
+        return vec![format!("{}_sapling", legacy_wood(w))];
+    }
+    let single = match stem {
+        "hardened_clay" => "terracotta",
+        "grass_top" => "grass_block_top",
+        "grass_side" => "grass_block_side",
+        "grass_side_overlay" => "grass_block_side_overlay",
+        "grass_side_snowed" => "grass_block_snow",
+        "stonebrick" => "stone_bricks",
+        "stonebrick_mossy" => "mossy_stone_bricks",
+        "stonebrick_cracked" => "cracked_stone_bricks",
+        "stonebrick_carved" => "chiseled_stone_bricks",
+        "cobblestone_mossy" => "mossy_cobblestone",
+        "brick" => "bricks",
+        "nether_brick" => "nether_bricks",
+        "sandstone_normal" => "sandstone",
+        "sandstone_carved" => "chiseled_sandstone",
+        "sandstone_smooth" => "cut_sandstone",
+        "red_sandstone_normal" => "red_sandstone",
+        "red_sandstone_carved" => "chiseled_red_sandstone",
+        "red_sandstone_smooth" => "cut_red_sandstone",
+        "quartz_block_chiseled" => "chiseled_quartz_block",
+        "quartz_block_chiseled_top" => "chiseled_quartz_block_top",
+        "quartz_block_lines" => "quartz_pillar",
+        "quartz_block_lines_top" => "quartz_pillar_top",
+        "stone_granite" => "granite",
+        "stone_granite_smooth" => "polished_granite",
+        "stone_diorite" => "diorite",
+        "stone_diorite_smooth" => "polished_diorite",
+        "stone_andesite" => "andesite",
+        "stone_andesite_smooth" => "polished_andesite",
+        "dirt_podzol_top" => "podzol_top",
+        "dirt_podzol_side" => "podzol_side",
+        "farmland_dry" => "farmland",
+        "farmland_wet" => "farmland_moist",
+        "tallgrass" => "short_grass",
+        "deadbush" => "dead_bush",
+        "waterlily" => "lily_pad",
+        "reeds" => "sugar_cane",
+        "web" => "cobweb",
+        "torch_on" => "torch",
+        "redstone_torch_on" => "redstone_torch",
+        "redstone_lamp_off" => "redstone_lamp",
+        "furnace_front_off" => "furnace_front",
+        "dispenser_front_horizontal" => "dispenser_front",
+        "dropper_front_horizontal" => "dropper_front",
+        "piston_top_normal" => "piston_top",
+        "anvil_base" => "anvil",
+        "anvil_top_damaged_0" => "anvil_top",
+        "anvil_top_damaged_1" => "chipped_anvil_top",
+        "anvil_top_damaged_2" => "damaged_anvil_top",
+        "endframe_top" => "end_portal_frame_top",
+        "endframe_side" => "end_portal_frame_side",
+        "endframe_eye" => "end_portal_frame_eye",
+        "portal" => "nether_portal",
+        "ice_packed" => "packed_ice",
+        "slime" => "slime_block",
+        "noteblock" => "note_block",
+        "mob_spawner" => "spawner",
+        "sponge_wet" => "wet_sponge",
+        "stone_slab_top" => "smooth_stone",
+        "stone_slab_side" => "smooth_stone_slab_side",
+        "rail_normal" => "rail",
+        "rail_normal_turned" => "rail_corner",
+        "rail_golden" => "powered_rail",
+        "rail_golden_powered" => "powered_rail_on",
+        "rail_detector" => "detector_rail",
+        "rail_detector_powered" => "detector_rail_on",
+        "rail_activator" => "activator_rail",
+        "rail_activator_powered" => "activator_rail_on",
+        "comparator_off" => "comparator",
+        "repeater_off" => "repeater",
+        "door_wood_upper" => "oak_door_top",
+        "door_wood_lower" => "oak_door_bottom",
+        "flower_rose" => "poppy",
+        "flower_dandelion" => "dandelion",
+        "flower_houstonia" => "azure_bluet",
+        "flower_oxeye_daisy" => "oxeye_daisy",
+        "flower_allium" => "allium",
+        "flower_blue_orchid" => "blue_orchid",
+        "flower_tulip_red" => "red_tulip",
+        "flower_tulip_orange" => "orange_tulip",
+        "flower_tulip_white" => "white_tulip",
+        "flower_tulip_pink" => "pink_tulip",
+        "flower_paeonia" => "peony",
+        _ => return Vec::new(),
+    };
+    vec![single.to_owned()]
+}
+
+fn split_tex_ext(file: &str) -> Option<(&str, &str)> {
+    if let Some(stem) = file.strip_suffix(".png.mcmeta") {
+        Some((stem, ".png.mcmeta"))
+    } else if let Some(stem) = file.strip_suffix(".png") {
+        Some((stem, ".png"))
+    } else {
+        None
+    }
+}
+
+fn bridge_legacy_pack_files(out: &mut BTreeMap<String, Provided>) {
+    let snapshot: Vec<(String, Provided)> = out.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let mut insert_missing = |dst: String, p: &Provided| {
+        out.entry(dst).or_insert_with(|| p.clone());
+    };
+    for (rel, provided) in &snapshot {
+        if let Some(rest) = rel.strip_prefix("assets/minecraft/textures/items/") {
+            insert_missing(format!("assets/minecraft/textures/item/{rest}"), provided);
+            if let Some((stem, ext)) = split_tex_ext(rest) {
+                for &modern in legacy_item_texture_names(stem) {
+                    insert_missing(
+                        format!("assets/minecraft/textures/item/{modern}{ext}"),
+                        provided,
+                    );
+                }
+            }
+        } else if let Some(rest) = rel.strip_prefix("assets/minecraft/textures/blocks/") {
+            insert_missing(format!("assets/minecraft/textures/block/{rest}"), provided);
+            if let Some((stem, ext)) = split_tex_ext(rest) {
+                for modern in legacy_block_texture_names(stem) {
+                    insert_missing(
+                        format!("assets/minecraft/textures/block/{modern}{ext}"),
+                        provided,
+                    );
+                }
+            }
+        } else if let Some(file) = rel.strip_prefix("assets/minecraft/textures/models/armor/") {
+            if file == "leather_layer_1_overlay.png" {
+                insert_missing(
+                    "assets/minecraft/textures/entity/equipment/humanoid/leather_overlay.png".into(),
+                    provided,
+                );
+            } else if file == "leather_layer_2_overlay.png" {
+                insert_missing(
+                    "assets/minecraft/textures/entity/equipment/humanoid_leggings/leather_overlay.png"
+                        .into(),
+                    provided,
+                );
+            } else if let Some(mat) = file.strip_suffix("_layer_1.png") {
+                insert_missing(
+                    format!("assets/minecraft/textures/entity/equipment/humanoid/{mat}.png"),
+                    provided,
+                );
+            } else if let Some(mat) = file.strip_suffix("_layer_2.png") {
+                insert_missing(
+                    format!(
+                        "assets/minecraft/textures/entity/equipment/humanoid_leggings/{mat}.png"
+                    ),
+                    provided,
+                );
+            }
+        } else if let Some(rest) = rel.strip_prefix("assets/minecraft/mcpatcher/sky/") {
+            insert_missing(format!("assets/minecraft/optifine/sky/{rest}"), provided);
+        } else if let Some(rest) = rel.strip_prefix("assets/minecraft/mcpatcher/lightmap/") {
+            insert_missing(
+                format!("assets/minecraft/optifine/lightmap/{rest}"),
+                provided,
+            );
+        }
+    }
 }
 /// Whether a zip entry's name, joined to the overlay folder, stays in it: `/`-separated parts
 /// (zip.rs turns `\` into `/`), none empty, `.` or `..`, and no `:` (a drive or a stream on
@@ -822,13 +1101,6 @@ fn build_overlay_uncached(
     }
     // Vanilla sits below every pack, so filters hide its files too.
     let filters: Vec<&Filter> = packs.iter().flat_map(|p| &p.filter).collect();
-    let touched_dirs: BTreeSet<String> = files
-        .keys()
-        .flat_map(|f| {
-            let parts: Vec<&str> = f.split('/').collect();
-            (1..parts.len()).map(move |n| parts[..n].join("/"))
-        })
-        .collect();
     let zips: Vec<Option<Zip>> = packs
         .iter()
         .map(|p| {
@@ -877,6 +1149,15 @@ fn build_overlay_uncached(
             merged.insert(name.clone(), bytes);
         }
     }
+    slice_legacy_gui_sheets(&files, &zips, &mut merged);
+    let touched_dirs: BTreeSet<String> = files
+        .keys()
+        .chain(merged.keys())
+        .flat_map(|f| {
+            let parts: Vec<&str> = f.split('/').collect();
+            (1..parts.len()).map(move |n| parts[..n].join("/"))
+        })
+        .collect();
     /// A zip entry to write: its pack, its name in the zip and where it goes.
     type Extract<'a> = (usize, &'a str, PathBuf);
     #[allow(clippy::too_many_arguments)]
@@ -1027,6 +1308,92 @@ fn build_overlay_uncached(
     }
     extracted
 }
+/// Slices legacy 1.8.9 `gui/icons.png` and `gui/widgets.png` sprite sheets into 26.3
+/// `textures/gui/sprites/hud/*.png` entries inside `merged`, when not already overridden.
+fn slice_legacy_gui_sheets(
+    files: &BTreeMap<String, (usize, Provided)>,
+    zips: &[Option<Zip>],
+    merged: &mut BTreeMap<String, Vec<u8>>,
+) {
+    let read_provided = |(owner, (path, inner)): &(usize, Provided)| -> Option<Vec<u8>> {
+        match path {
+            Some(p) => fs::read(p).ok(),
+            None => zips
+                .get(*owner)
+                .and_then(Option::as_ref)
+                .and_then(|z| z.read(inner).ok()),
+        }
+    };
+    let slice_into = |sheet_key: &str, regions: &[(&str, u32, u32, u32, u32)], merged: &mut BTreeMap<String, Vec<u8>>| {
+        let Some(src) = files.get(sheet_key) else {
+            return;
+        };
+        let Some(bytes) = read_provided(src) else {
+            return;
+        };
+        let Ok((w, h, rgba)) = crate::hud::decode_bytes(&bytes) else {
+            return;
+        };
+        if w < 256 || h == 0 {
+            return;
+        }
+        let scale = w / 256;
+        for &(rel, sx, sy, sw, sh) in regions {
+            let dst = format!("assets/minecraft/textures/gui/sprites/{rel}");
+            if files.contains_key(&dst) || merged.contains_key(&dst) {
+                continue;
+            }
+            let (px, py, pw, ph) = (sx * scale, sy * scale, sw * scale, sh * scale);
+            if px + pw > w || py + ph > h {
+                continue;
+            }
+            let mut crop = Vec::with_capacity((pw * ph * 4) as usize);
+            for row in 0..ph {
+                let start = (((py + row) * w + px) * 4) as usize;
+                let end = start + (pw * 4) as usize;
+                crop.extend_from_slice(&rgba[start..end]);
+            }
+            let mut out = Vec::new();
+            let mut encoder = png::Encoder::new(&mut out, pw, ph);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            if encoder
+                .write_header()
+                .and_then(|mut writer| writer.write_image_data(&crop))
+                .is_ok()
+            {
+                merged.insert(dst, out);
+            }
+        }
+    };
+    slice_into(
+        "assets/minecraft/textures/gui/icons.png",
+        &[
+            ("hud/crosshair.png", 0, 0, 15, 15),
+            ("hud/heart/container.png", 16, 0, 9, 9),
+            ("hud/heart/full.png", 52, 0, 9, 9),
+            ("hud/heart/half.png", 61, 0, 9, 9),
+            ("hud/heart/absorbing_full.png", 160, 0, 9, 9),
+            ("hud/heart/absorbing_half.png", 169, 0, 9, 9),
+            ("hud/armor_empty.png", 16, 9, 9, 9),
+            ("hud/armor_half.png", 25, 9, 9, 9),
+            ("hud/armor_full.png", 34, 9, 9, 9),
+            ("hud/food_empty.png", 16, 27, 9, 9),
+            ("hud/food_half.png", 61, 27, 9, 9),
+            ("hud/food_full.png", 52, 27, 9, 9),
+        ],
+        merged,
+    );
+    slice_into(
+        "assets/minecraft/textures/gui/widgets.png",
+        &[
+            ("hud/hotbar.png", 0, 0, 182, 22),
+            ("hud/hotbar_selection.png", 0, 22, 24, 23),
+        ],
+        merged,
+    );
+}
+
 /// The most the zip packs in `packs` may unpack to in one overlay: 16 times their size on disk
 /// (real packs are mostly PNGs and JSON, a few times smaller zipped at most), at least 64 MiB
 /// for a small pack of text, and never past 8 GiB.

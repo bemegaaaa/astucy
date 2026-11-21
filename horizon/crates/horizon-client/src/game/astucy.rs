@@ -298,18 +298,24 @@ fn build_default_modules() -> Vec<AstucyMod> {
         // Addons opcionais (Launcher / Rust)
         AstucyMod::new("modmenu", "Mod Menu", "In-game mods & config", Utility, false, true, [0.5, 0.5]),
         AstucyMod::new("mousetweaks", "Mouse Tweaks", "Fast drag & wheel move", Utility, false, true, [0.5, 0.5]),
-        AstucyMod::new("itemrespawn", "Custom Item Respawn", "Fast item & totem swap", Combat, false, true, [0.5, 0.5]),
+        AstucyMod::new("cit", "CIT Resewn (CIT)", "OptiFine custom item textures", Visuals, false, true, [0.5, 0.5]),
+        AstucyMod::new("combat18", "1.8.9 Combat", "Legacy PvP, block-hit & no cooldown", Combat, false, true, [0.5, 0.5]),
         // Extras de HUD
         AstucyMod::new("watermark", "Watermark", "Client watermark", Info, true, true, [0.500, 0.955]),
         AstucyMod::new("fpsgraph", "FPS Graph", "FPS sparkline", Info, true, true, [0.845, 0.400]),
         AstucyMod::new("realtime", "Real Time", "Local time clock", Info, true, true, [0.845, 0.560]),
     ];
 
-    // Preset padrão: apenas Auto Sprint, FPS, Ping e CPS ativos
-    for id in ["sprint", "fps", "ping", "cps"] {
+    // Preset padrão: Auto Sprint, FPS, Ping, CPS e CIT ativos (+ 1.8.9 Combat no modo 1.8.9)
+    for id in ["sprint", "fps", "ping", "cps", "cit"] {
         if let Some(m) = list.iter_mut().find(|m| m.id == id) {
             m.enabled = true;
         }
+    }
+    if horizon_core::version::is_189_mode()
+        && let Some(m) = list.iter_mut().find(|m| m.id == "combat18")
+    {
+        m.enabled = true;
     }
     list
 }
@@ -353,7 +359,8 @@ impl AstucyState {
 
     fn apply_saved(target: &mut [AstucyMod], saved: &[SavedModState]) {
         for s in saved {
-            if let Some(m) = target.iter_mut().find(|m| m.id == s.id) {
+            let id = if s.id == "itemrespawn" { "cit" } else { s.id.as_str() };
+            if let Some(m) = target.iter_mut().find(|m| m.id == id) {
                 m.enabled = s.enabled;
                 m.anchor = [s.anchor[0].clamp(0.0, 0.98), s.anchor[1].clamp(0.0, 0.98)];
                 m.scale = s.scale.clamp(0.6, 2.0);
@@ -442,10 +449,21 @@ fn draw_skin_icon(ui: &mut Ui<'_>, id: &str, x: f32, y: f32, size: f32, col: u32
             cap(ui, 18.5, 25.0, 11.0, 11.0, 3.0);
             cap(ui, 31.0, 25.0, 11.0, 11.0, 3.0);
         }
-        "totem" | "itemrespawn" => {
+        "totem" => {
             dot(ui, 24.0, 13.0, 5.0);
             cap(ui, 10.0, 20.0, 28.0, 5.5, 2.5);
             cap(ui, 18.0, 20.0, 12.0, 19.0, 4.0);
+        }
+        "cit" => {
+            rbox(ui, 12.0, 14.0, 24.0, 22.0, 5.0);
+            cap(ui, 18.0, 9.0, 12.0, 6.0, 2.5);
+            tri(ui, [24.0, 18.0], [19.0, 25.0], [29.0, 25.0]);
+            tri(ui, [24.0, 32.0], [19.0, 25.0], [29.0, 25.0]);
+        }
+        "combat18" => {
+            tri(ui, [34.0, 10.0], [14.0, 30.0], [18.0, 34.0]);
+            cap(ui, 11.0, 31.0, 9.0, 5.0, 2.0);
+            rbox(ui, 22.0, 18.0, 14.0, 16.0, 4.0);
         }
         "mousetweaks" => {
             rbox(ui, 13.0, 7.0, 22.0, 34.0, 10.0);
@@ -483,9 +501,32 @@ fn draw_skin_icon(ui: &mut Ui<'_>, id: &str, x: f32, y: f32, size: f32, col: u32
             tri(ui, [26.0, 7.0], [13.0, 25.0], [25.0, 25.0]);
             tri(ui, [23.0, 23.0], [35.0, 23.0], [22.0, 41.0]);
         }
-        "armor" | "armordur" => {
-            rbox(ui, 11.0, 8.0, 26.0, 24.0, 6.0);
-            tri(ui, [12.0, 28.0], [36.0, 28.0], [24.0, 40.0]);
+        "armor" | "armordur" | "armor_chest" => {
+            // Chestplate silhouette: shoulders + torso + waist
+            cap(ui, 6.0, 9.0, 13.0, 12.0, 3.0);
+            cap(ui, 29.0, 9.0, 13.0, 12.0, 3.0);
+            cap(ui, 13.0, 14.0, 22.0, 26.0, 4.0);
+            cap(ui, 17.0, 9.0, 14.0, 7.0, 2.0);
+        }
+        "armor_helmet" => {
+            // Helmet dome + side cheek guards
+            cap(ui, 9.0, 8.0, 30.0, 14.0, 6.0);
+            cap(ui, 8.0, 17.0, 9.0, 19.0, 3.0);
+            cap(ui, 31.0, 17.0, 9.0, 19.0, 3.0);
+            cap(ui, 19.0, 16.0, 10.0, 9.0, 2.0);
+        }
+        "armor_legs" => {
+            // Leggings: waistband + two distinct legs
+            cap(ui, 11.0, 8.0, 26.0, 10.0, 3.0);
+            cap(ui, 11.0, 15.0, 11.0, 26.0, 3.0);
+            cap(ui, 26.0, 15.0, 11.0, 26.0, 3.0);
+        }
+        "armor_boots" => {
+            // Two boots with soles
+            cap(ui, 9.0, 13.0, 11.0, 20.0, 3.0);
+            cap(ui, 6.0, 28.0, 15.0, 9.0, 3.0);
+            cap(ui, 28.0, 13.0, 11.0, 20.0, 3.0);
+            cap(ui, 27.0, 28.0, 15.0, 9.0, 3.0);
         }
         "hora" | "realtime" => {
             rbox(ui, 8.0, 8.0, 32.0, 32.0, 16.0);
@@ -648,6 +689,15 @@ impl Game<'_> {
             self.pvp.astucy.crosshair_invert = cfg.crosshair_invert;
             self.pvp.astucy.light_mode = cfg.light_mode;
         }
+        if horizon_core::version::is_189_mode() {
+            let idx = self.pvp.astucy.active_profile.min(2);
+            if let Some(m) = self.pvp.astucy.mods.iter_mut().find(|m| m.id == "combat18") {
+                m.enabled = true;
+            }
+            if let Some(m) = self.pvp.astucy.profiles[idx].iter_mut().find(|m| m.id == "combat18") {
+                m.enabled = true;
+            }
+        }
         self.sync_astucy_to_horizon();
     }
 
@@ -679,6 +729,7 @@ impl Game<'_> {
         let fullbright = self.pvp.astucy.is_on("fullbright");
         let auto_sprint = self.pvp.astucy.is_on("sprint");
         let toggle_sneak = self.pvp.astucy.is_on("sneak");
+        let combat_189 = horizon_core::version::is_189_mode() || self.pvp.astucy.is_on("combat18");
         let viewmodel = self.pvp.astucy.find("viewmodel").cloned();
 
         self.settings.extras.pvp.crosshair.custom = crosshair;
@@ -689,6 +740,15 @@ impl Game<'_> {
         self.settings.extras.fullbright = fullbright;
         self.settings.toggle_sprint = auto_sprint;
         self.settings.toggle_crouch = toggle_sneak;
+        self.settings.extras.pvp.combat.legacy = combat_189;
+        self.settings.extras.pvp.combat.rules = combat_189;
+        self.settings.extras.pvp.combat.sounds = combat_189;
+        if combat_189 {
+            self.settings.extras.pvp.combat.indicator = false;
+        }
+        if let Some(server) = self.integrated.as_ref() {
+            server.set_legacy_rules(self.settings.extras.pvp.combat.rules);
+        }
         self.hold_fullbright();
 
         if let Some(vm) = viewmodel {
@@ -948,35 +1008,37 @@ impl Game<'_> {
             .map(|s| s.count)
             .sum();
 
-        // Collect real armor pieces (or preview in HUD Editor): (slot_tag, dur_text, pct, rgb)
-        let slot_tags = ["B", "L", "C", "H"];
-        let mut armor_rows: Vec<(&'static str, String, f32, u32)> = Vec::new();
+        // Collect real armor pieces (or preview in HUD Editor): (slot_idx, icon_id, rem, pct, rgb)
+        let slot_icons = ["armor_boots", "armor_legs", "armor_chest", "armor_helmet"];
+        let mut armor_rows: Vec<(Option<usize>, &'static str, u32, f32, u32)> = Vec::new();
         for (si, slot) in self.armor.iter().enumerate().rev() {
             if let Some(piece) = slot {
                 let max = self.items().get(&piece.item).map_or(0, |i| i.max_damage);
                 if max > 0 {
                     let rem = max.saturating_sub(piece.damage);
                     let pct = (rem as f32 / max as f32).clamp(0.0, 1.0);
-                    let rgb = if pct > 0.60 {
-                        0x6FE3A2
-                    } else if pct > 0.35 {
-                        0xFFE066
+                    let rgb = if pct > 0.75 {
+                        0x4ADE80
+                    } else if pct > 0.50 {
+                        0xA3E635
+                    } else if pct > 0.30 {
+                        0xFACC15
                     } else if pct > 0.15 {
-                        0xFFB454
+                        0xFB923C
                     } else {
-                        0xFF5D5D
+                        0xEF4444
                     };
-                    let tag = slot_tags.get(si).copied().unwrap_or("A");
-                    armor_rows.push((tag, format!("{rem}"), pct, rgb));
+                    let icon = slot_icons.get(si).copied().unwrap_or("armor_chest");
+                    armor_rows.push((Some(si), icon, rem, pct, rgb));
                 }
             }
         }
         if armor_rows.is_empty() && editing_hud {
             armor_rows.extend([
-                ("H", "363".to_owned(), 1.0, 0x6FE3A2),
-                ("C", "528".to_owned(), 0.92, 0x6FE3A2),
-                ("L", "495".to_owned(), 0.85, 0x6FE3A2),
-                ("B", "429".to_owned(), 0.78, 0x6FE3A2),
+                (None, "armor_helmet", 363, 1.0, 0x4ADE80),
+                (None, "armor_chest", 396, 0.75, 0xA3E635),
+                (None, "armor_legs", 220, 0.44, 0xFACC15),
+                (None, "armor_boots", 52, 0.12, 0xEF4444),
             ]);
         }
 
@@ -1034,6 +1096,7 @@ impl Game<'_> {
 
         let mut new_boxes = Vec::new();
         let mut wm_logo: Option<(f32, f32, f32)> = None;
+        let mut armor_sprites: Vec<(usize, f32, f32)> = Vec::new();
         {
             let mut ui = Ui::new(&self.gui.atlas, batch, self.cursor);
             let (uw, uh) = (ui.w, ui.h);
@@ -1153,27 +1216,38 @@ impl Game<'_> {
                     continue;
                 }
 
-                // 3. `armor`: only drawn when armor equipped or in HUD editor preview
+                // 3. `armor`: Armor Status with real Minecraft armor sprites, % toggle, and durability-based colors
                 if m.id == "armor" {
                     if armor_rows.is_empty() {
                         continue;
                     }
-                    let cw = 96.0 * sc;
-                    let row_h = 24.0 * sc;
+                    let icon_ui = (16.0 / k_to_gui).max(18.0 * sc);
+                    let row_h = (icon_ui + 6.0 * sc).max(24.0 * sc);
+                    let left_pad = 7.0 * sc + icon_ui + 7.0 * sc;
+                    let cw = (left_pad + 64.0 * sc).max(98.0 * sc);
                     let ch = armor_rows.len() as f32 * row_h + 8.0 * sc;
                     let ax = (m.anchor[0] * uw).clamp(2.0, (uw - cw - 2.0).max(2.0));
                     let ay = (m.anchor[1] * uh).clamp(2.0, (uh - ch - 2.0).max(2.0));
                     if m.bg {
                         ui.rounded(ax, ay, cw, ch, 7.5 * sc, bg_col);
                     }
-                    for (ri, (tag, txt, pct, rgb)) in armor_rows.iter().enumerate() {
+                    for (ri, (slot_idx, icon_id, rem, pct, rgb)) in armor_rows.iter().enumerate() {
                         let ry = ay + 4.0 * sc + ri as f32 * row_h;
-                        ui.rounded(ax + 7.0 * sc, ry + 3.0 * sc, 17.0 * sc, 17.0 * sc, 4.0 * sc, hex(*rgb, 36));
-                        ui.text_centered(Face::SemiBold, 11.5 * sc, ax + 15.5 * sc, ry + 4.5 * sc, hex(*rgb, 245), tag);
-                        ui.text(Face::Medium, 15.0 * sc, ax + 29.0 * sc, ry + 2.0 * sc, hex(*rgb, 255), txt);
-                        let bar_w = cw - 36.0 * sc;
-                        ui.rounded(ax + 29.0 * sc, ry + 19.0 * sc, bar_w, 2.2 * sc, 1.0, hex(0xFFFFFF, 32));
-                        ui.rounded(ax + 29.0 * sc, ry + 19.0 * sc, bar_w * *pct, 2.2 * sc, 1.0, hex(*rgb, 220));
+                        if let Some(si) = slot_idx {
+                            let iy = ry + (row_h - 16.0 / k_to_gui) * 0.5;
+                            armor_sprites.push((*si, (ax + 7.0 * sc) * k_to_gui, iy * k_to_gui));
+                        } else {
+                            draw_skin_icon(&mut ui, icon_id, ax + 7.0 * sc, ry + 3.0 * sc, 18.0 * sc, hex(*rgb, 245));
+                        }
+                        let val_txt = if m.show_prefix {
+                            format!("{}%", (*pct * 100.0).round() as u32)
+                        } else {
+                            format!("{rem}")
+                        };
+                        ui.text(Face::Medium, 15.0 * sc, ax + left_pad, ry + 2.0 * sc, hex(*rgb, 255), &val_txt);
+                        let bar_w = cw - left_pad - 7.0 * sc;
+                        ui.rounded(ax + left_pad, ry + row_h - 5.0 * sc, bar_w, 2.2 * sc, 1.0, hex(0xFFFFFF, 32));
+                        ui.rounded(ax + left_pad, ry + row_h - 5.0 * sc, bar_w * *pct, 2.2 * sc, 1.0, hex(*rgb, 230));
                     }
                     new_boxes.push((idx, [ax * k_to_gui, ay * k_to_gui, cw * k_to_gui, ch * k_to_gui]));
                     continue;
@@ -1302,7 +1376,7 @@ impl Game<'_> {
                     "health" => if abs > 0.05 { format!("{hp:.1} +{}", abs.round() as i32) } else { format!("{hp:.1}") },
                     "hunger" => format!("{food}  {sat:.1}"),
                     "combo" => combo_val.clone(),
-                    "armordur" => armor_rows.first().map(|(_, t, _, _)| t.clone()).unwrap_or_else(|| "100%".to_owned()),
+                    "armordur" => armor_rows.first().map(|(_, _, r, _, _)| format!("{r}")).unwrap_or_else(|| "100%".to_owned()),
                     "daycounter" => format!("{day_num}"),
                     "realtime" => real_time_str.clone(),
                     _ => continue,
@@ -1334,6 +1408,11 @@ impl Game<'_> {
                 new_boxes.push((idx, [cx * k_to_gui, cy * k_to_gui, chip_w * k_to_gui, chip_h * k_to_gui]));
             }
             ui.finish();
+        }
+        for (si, gx, gy) in armor_sprites {
+            if let Some(piece) = &self.armor[si] {
+                self.draw_item_model(batch, piece, gx, gy);
+            }
         }
         if let Some((lx, ly, lsz)) = wm_logo {
             draw_astucy_logo(&self.gui.atlas, batch, lx, ly, lsz, now_secs as f32 * 0.85, 0.95, true);
@@ -1641,11 +1720,13 @@ impl Game<'_> {
 
             if self.pvp.astucy.tab == 1 {
                 // MODS tab (`RShiftScreen.java:2154-2178`)
+                let mc_ver = horizon_core::version::astucy_mc_version();
                 let loaded_mods = [
                     ("Astucy Client", "0.1.0"),
-                    ("Horizon Rust Engine", "26.3"),
-                    ("wgpu Renderer (Sodium-class)", "26.3"),
-                    ("WGSL Shader Pipeline (Iris-class)", "26.3"),
+                    ("Horizon Rust Engine", mc_ver),
+                    ("wgpu Renderer (Sodium-class)", mc_ver),
+                    ("WGSL Shader Pipeline (Iris-class)", mc_ver),
+                    ("CIT Resewn (OptiFine CIT Engine)", mc_ver),
                     ("Astucy Menu Glass & Blur FX", "0.1.0"),
                     ("Astucy Native PvP Telemetry", "0.1.0"),
                 ];
@@ -1663,7 +1744,7 @@ impl Game<'_> {
                     let vw = ui.measure(Face::Regular, 11.5, mver);
                     ui.text(Face::Regular, 11.5, cx + cw - vw - 12.0, ry + 4.5, hex(0x6FE3A2, (235.0 * re) as u8), mver);
                 }
-                ui.text(Face::Regular, 11.0, cx + 8.0, cy + ch - 18.0, hex(0x8A94A6, 200), "6 mods loaded natively in Rust");
+                ui.text(Face::Regular, 11.0, cx + 8.0, cy + ch - 18.0, hex(0x8A94A6, 200), "7 mods loaded natively in Rust");
             } else if self.pvp.astucy.tab == 2 {
                 // SETTINGS tab (`ClientSettingsScreen.java`)
                 ui.text(Face::SemiBold, 11.5, cx + 6.0, cy, hex(0x6FE3A2, 255), "CLIENT & ENGINE SETTINGS");
@@ -1817,6 +1898,11 @@ impl Game<'_> {
                 let row_y0 = cy + 40.0;
                 let row_h = 28.0;
 
+                let prefix_lbl = match em.id {
+                    "armor" => "Percentage (%)",
+                    "healthtag" => "Show hearts",
+                    _ => "Prefix",
+                };
                 let opt_labels = [
                     "Scale",
                     "Background",
@@ -1824,7 +1910,7 @@ impl Game<'_> {
                     "Background color",
                     "Text color",
                     "Shadow",
-                    "Prefix",
+                    prefix_lbl,
                     "Position",
                     "Level / Intensity",
                 ];

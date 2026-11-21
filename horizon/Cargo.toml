@@ -107,8 +107,9 @@ opt-level = 3
 opt-level = 3
 
 [profile.release]
-lto = "thin"
-codegen-units = 1
+lto = false
+codegen-units = 16
+incremental = true
 
 # Optimized but quick-to-link builds for iteration: cargo build --profile fast
 [profile.fast]

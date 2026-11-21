@@ -305,7 +305,6 @@ impl App {
             sys: None,
         };
 
-        let _ = profile::sync_core_mod();
         std::thread::spawn(|| {
             let _ = engine::check_github_updates();
         });
@@ -508,7 +507,7 @@ impl App {
             if let Some(v) = self
                 .installed
                 .iter()
-                .find(|v| v.name.split('.').next().and_then(|s| s.parse::<u32>().ok()).is_some_and(|m| m >= 26))
+                .find(|v| profile::has_client_mod(&v.name))
                 .or_else(|| self.installed.first())
             {
                 self.version = v.name.clone();
@@ -517,6 +516,7 @@ impl App {
     }
 
     fn refresh_mods(&mut self) {
+        let _ = profile::sync_core_mod(&self.version);
         self.mods = scan_mods(&self.version);
     }
 
@@ -789,13 +789,8 @@ impl App {
                     self.launching = false;
                     match r {
                         Ok(_) => {
-                            let is_client = self
-                                .version
-                                .split('.')
-                                .next()
-                                .and_then(|s| s.parse::<u32>().ok())
-                                .unwrap_or(0)
-                                >= 26;
+                            let is_client = self.version.contains("Rust")
+                                || profile::has_client_mod(&self.version);
                             if self.close_on_play {
                                 self.close_at = Some(now() + 1.6);
                             } else if is_client {
@@ -803,7 +798,7 @@ impl App {
                             } else {
                                 self.toast(
                                     format!(
-                                        "{} aberto (Vanilla — o mod do client roda na 26.x).",
+                                        "{} aberto (Vanilla — mod do client disponível em 26.x, 1.21.4, 1.20.1, 1.8.9 e 1.7.10).",
                                         self.version
                                     ),
                                     false,
@@ -1094,7 +1089,9 @@ impl App {
             egui::UiBuilder::new().max_rect(rect.shrink2(Vec2::new(26.0, 22.0))),
             |ui| {
                 ui.horizontal(|ui| {
-                    let badge_txt = if self.version.contains("Rust") {
+                    let badge_txt = if self.version.starts_with("1.8.9") && self.version.contains("Rust") {
+                        "ASTUCY · MOTOR RUST 1.8.9"
+                    } else if self.version.contains("Rust") {
                         "ASTUCY · MOTOR RUST 26.3"
                     } else {
                         "MINECRAFT: JAVA EDITION"
@@ -1655,7 +1652,7 @@ impl App {
             ui.add_space(10.0);
             for (f, label) in [
                 (Filter::All, "Todas"),
-                (Filter::Client, "26.x"),
+                (Filter::Client, "Client"),
                 (Filter::Legacy, "1.x"),
                 (Filter::Installed, "Instaladas"),
             ] {
@@ -1704,7 +1701,7 @@ impl App {
                 for (fam, list) in &groups {
                     let open = !q.is_empty() || self.open_groups.contains(fam);
                     let installed = list.iter().filter(|v| v.installed).count();
-                    if group_header(ui, fam, list.len(), installed, &list[0].id, open, p).clicked() {
+                    if group_header(ui, fam, list.len(), installed, &list[0].id, list.iter().any(|v| v.client), open, p).clicked() {
                         toggle = Some(fam.clone());
                     }
                     if open {
@@ -1777,10 +1774,22 @@ impl App {
                 text(ui, "Mods", 26.0, p.text, true);
                 ui.add_space(3.0);
                 let sub = if is_rust {
-                    "26.3 (Rust) \u{2014} motor nativo em Rust. Mods .jar de Fabric não rodam aqui; ative os addons opcionais abaixo.".to_string()
-                } else {
+                    let rust_tag = if self.version.starts_with("1.8.9") {
+                        "1.8.9 (Rust)"
+                    } else {
+                        "26.3 (Rust)"
+                    };
                     format!(
-                        "Fabric {ver} \u{2014} baixa direto do Modrinth, já com as dependências obrigatórias."
+                        "{rust_tag} \u{2014} motor nativo em Rust. Mods .jar de Fabric não rodam aqui; ative os addons opcionais abaixo."
+                    )
+                } else {
+                    let loader = if ver == "1.8.9" || ver == "1.7.10" {
+                        "Legacy Fabric"
+                    } else {
+                        "Fabric"
+                    };
+                    format!(
+                        "{loader} {ver} \u{2014} baixa direto do Modrinth, já com as dependências obrigatórias."
                     )
                 };
                 text(ui, &sub, 11.5, p.dim, false);
@@ -1801,7 +1810,8 @@ impl App {
             const RUST_ADDONS: &[(&str, &str, &str, bool)] = &[
                 ("modmenu", "Mod Menu", "Lista de módulos e configs no menu R-SHIFT", false),
                 ("mousetweaks", "Mouse Tweaks", "Arrastar itens rápido e scroll no inventário/baús", false),
-                ("itemrespawn", "Custom Item Respawn", "Troca rápida e respawn customizado de itens/totem", false),
+                ("cit", "CIT Resewn (CIT)", "Texturas customizadas de itens/armaduras estilo OptiFine (CIT)", true),
+                ("combat18", "1.8.9 Combat", "Combate clássico 1.8.9 (sem cooldown, sword block-hit e knockback 1.8)", false),
                 ("healthtag", "Player Health (Corações)", "Mostra corações de vida em cima da cabeça dos players (ajustável no R-SHIFT)", false),
                 ("blur", "Motion Blur", "Desfoque suave ao girar a câmera", false),
                 ("fullbright", "Fullbright", "Brilho máximo em cavernas e à noite", false),
@@ -1948,6 +1958,7 @@ impl App {
                                     let is_core = [
                                         "astucyc",
                                         "fabric-api",
+                                        "legacy-fabric-api",
                                         "sodium",
                                         "lithium",
                                         "iris",
@@ -3596,6 +3607,7 @@ fn group_header(
     count: usize,
     installed: usize,
     newest: &str,
+    has_client: bool,
     open: bool,
     p: Pal,
 ) -> Response {
@@ -3613,7 +3625,7 @@ fn group_header(
                     ui.vertical(|ui| {
                         ui.horizontal(|ui| {
                             text(ui, fam, 14.0, p.text, true);
-                            if fam.ends_with(".x") {
+                            if has_client {
                                 badge(ui, "client", p);
                             }
                             text(ui, &format!("{count} versões"), 10.0, p.faint, false);
@@ -3941,6 +3953,10 @@ fn scan_installed() -> Vec<Installed> {
         out.push(Installed {
             name: "26.3 (Rust)".to_string(),
             modified: u64::MAX,
+        });
+        out.push(Installed {
+            name: "1.8.9 (Rust)".to_string(),
+            modified: u64::MAX - 1,
         });
     }
     if let Ok(entries) = std::fs::read_dir(mc_root().join("versions")) {

@@ -492,6 +492,11 @@ public final class Ui {
                 rect(g, x + 3, y + 7, 9, 2, color);
                 rect(g, x + 5, y + 11, 6, 2, color);
             }
+            case "cit" -> {
+                frame(g, x + 2, y + 4, 11, 9, color);
+                rect(g, x + 5, y + 2, 5, 2, color);
+                rect(g, x + 6, y + 7, 3, 3, color);
+            }
             default -> {
                 frame(g, x + 3, y + 3, 9, 9, color);
                 rect(g, x + 6, y + 6, 3, 3, color);

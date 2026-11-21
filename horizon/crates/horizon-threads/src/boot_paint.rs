@@ -142,7 +142,15 @@ pub fn paint(hwnd: isize, semibold: &'static [u8], mono: &'static [u8], logs: &[
         let tagline = face(small as i32, 400, "Geist Mono");
         let old_tagline = SelectObject(hdc, tagline);
         SetTextColor(hdc, CONSOLE);
-        let tagline_text: Vec<u16> = "Astucy Client · Rust Engine 26.3".encode_utf16().collect();
+        let ver = if std::env::var("ASTUCY_MC_VERSION").ok().is_some_and(|v| v.trim() == "1.8.9")
+            || std::env::args().skip_while(|a| a != "--astucy-mc-version").nth(1).is_some_and(|v| v.trim() == "1.8.9")
+        {
+            "1.8.9"
+        } else {
+            "26.3"
+        };
+        let tagline_str = format!("Astucy Client · Rust Engine {ver}");
+        let tagline_text: Vec<u16> = tagline_str.encode_utf16().collect();
         let tagline_top = top + size * 1.45 + small * 0.6;
         let mut tagline_rect = RECT {
             left: 0,

@@ -206,6 +206,9 @@ impl Game<'_> {
     /// OptiFine CIT: the winning armour or elytra rule (`kind`) of the worn `stack`. No lookup
     /// without CIT rules.
     pub(super) fn cit_worn_rule(&self, kind: Kind, stack: &ItemStack) -> Option<&Rule> {
+        if !self.pvp.astucy.mods.is_empty() && !self.pvp.astucy.is_on("cit") {
+            return None;
+        }
         let rules = &self.pack.item_renderer.cit.as_ref()?.rules;
         let item_max = self.items().get(&stack.item).map_or(0, |i| i.max_damage);
         horizon_client::item_render::cit::worn_rule(rules, kind, stack, item_max)

@@ -1,0 +1,2524 @@
+package com.astucy.client.gui;
+
+import com.astucy.client.AstucyFonts;
+import com.astucy.client.config.AstucyConfig;
+import com.astucy.client.module.Module;
+import com.astucy.client.module.ModuleCategory;
+import com.astucy.client.module.Modules;
+import com.astucy.client.ui.Skin;
+import com.astucy.client.ui.Ui;
+import net.fabricmc.loader.api.FabricLoader;
+import net.fabricmc.loader.api.ModContainer;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
+import org.lwjgl.glfw.GLFW;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+
+/**
+ * Menu R-SHIFT do Astucy â€” inspirado no layout dos clients premium:
+ * painel escuro sobre o mundo desfocado pelo jogo, busca no topo, pills
+ * de categoria com quebra dinÃ¢mica, sidebar de perfis, cards grandes
+ * (Ã­cone + OPÃ‡Ã•ES + barra de estado "ATIVADO"/"DESLIGADO") e scrollbar.
+ */
+public class RShiftScreen extends Screen {
+
+    private static final String[] PROFILES = {"Profile 1", "Profile 2", "Profile 3"};
+    private static final String[] OPT_ROWS = {
+        "Scale", "Background", "Opacity", "Background color", "Text color", "Shadow", "Prefix", "Position", "Clean font", "Custom label", "Height"
+    };
+    private static final String[] OPT_TOOLTIPS = {
+        "Chip size on the HUD",
+        "Background behind the text",
+        "Background transparency",
+        "Chip background color",
+        "Chip text color",
+        "Soft shadow behind the text",
+        "Shows the label before the value",
+        "Drag the chip in the editor",
+        "Smooth anti-aliased Montserrat instead of pixel font",
+        "Text shown before the value (e.g. SPRINT)",
+        "Chip height only (SHIFT + wheel in the editor)"
+    };
+
+
+    /** Linha de comportamento (nÃ£o estilo): um toggle ou um slider numÃ©rico. */
+    private record Row(String label, String tip, String prop, boolean toggle,
+                       double min, double max, double step, double def) {}
+
+    private static final Row[] ZOOM_ROWS = {
+        new Row("Toggle mode", "Press C once to toggle the zoom", "toggle", true, 0, 0, 0, 0),
+        new Row("Smooth transition", "Animates the zoom instead of snapping", "smooth", true, 0, 0, 0, 1),
+        new Row("Zoom level", "How much the zoom magnifies", "level", false, 0.1, 1.0, 0.025, 0.4)
+    };
+    private static final Row[] CHAT_ROWS = {
+            new Row("Infinite history", "Keep every message (4000 cap)", "chat_history", true, 0, 0, 0, 1),
+            new Row("Chat search", "Filter with /chs <text>", "chat_search", true, 0, 0, 0, 1),
+    };
+
+    private static final Row[] BLUR_ROWS = {
+        new Row("Strength", "Base motion blur intensity", "strength", false, 0.2, 3.0, 0.05, 1.25),
+        new Row("High-speed boost", "Amplifies blur dynamically on fast flicks & sprinting", "speed_boost", true, 0, 0, 0, 1),
+        new Row("Hybrid blending", "Combines velocity vectors with frame blending", "hybrid", true, 0, 0, 0, 1),
+        new Row("Weighted curve", "Smooth Gaussian-weighted trails without ghosting", "weighted", true, 0, 0, 0, 1)
+    };
+    private static final Row[] SPEEDFX_ROWS = {
+        new Row("Intensity", "Strength of peripheral velocity effects", "intensity", false, 0.2, 2.0, 0.05, 1.0),
+        new Row("Dynamic FOV rush", "Subtle FOV acceleration at high speeds", "fov_rush", true, 0, 0, 0, 1)
+    };
+    private static final Row[] AMBIENCE_ROWS = {
+        new Row("Tint intensity", "Atmospheric screen color grading opacity", "strength", false, 0.04, 0.35, 0.01, 0.14),
+        new Row("Cyber Emerald", "Use signature emerald tint instead of custom color", "emerald", true, 0, 0, 0, 1)
+    };
+    private static final Row[] MENUBLUR_ROWS = {
+        new Row("Cursor spotlight", "Interactive radial light following the cursor", "spotlight", true, 0, 0, 0, 1),
+        new Row("Ambient aura", "Atmospheric emerald & cyan lighting inside menus", "aura", true, 0, 0, 0, 1)
+    };
+    private static final Row[] FPS_ROWS = {
+        new Row("Average", "Average of the last second instead of the instant value", "avg", true, 0, 0, 0, 0),
+        new Row("Min / max", "Show the lowest and highest FPS of the last second", "minmax", true, 0, 0, 0, 0)
+    };
+    private static final Row[] PING_ROWS = {
+        new Row("Unit", "Append \"ms\" after the number", "ms", true, 0, 0, 0, 1)
+    };
+    private static final Row[] MEMORY_ROWS = {
+        new Row("Percent", "Show used / max and the percentage", "percent", true, 0, 0, 0, 0)
+    };
+    private static final Row[] CPS_ROWS = {
+        new Row("Split left / right", "Show left and right clicks separately", "split", true, 0, 0, 0, 1),
+        new Row("Brackets", "Wrap the value in [ ]", "brackets", true, 0, 0, 0, 0),
+        new Row("Right clicks first", "Right|Left instead of Left|Right", "reverse", true, 0, 0, 0, 0)
+    };
+    private static final Row[] KEYSTROKE_ROWS = {
+        new Row("Mouse buttons", "Show LMB / RMB", "mouse", true, 0, 0, 0, 1),
+        new Row("Space bar", "Show the space bar", "space", true, 0, 0, 0, 1),
+        new Row("Arrow keys", "Label the keys with arrows instead of WASD", "arrows", true, 0, 0, 0, 0),
+        new Row("CPS on mouse keys", "Click speed inside LMB / RMB", "keycps", true, 0, 0, 0, 0),
+        new Row("Key size", "Box size in pixels", "box", false, 12, 32, 2, 18)
+    };
+    private static final Row[] COORD_ROWS = {
+        new Row("Facing", "Show the direction after the coords", "facing", true, 0, 0, 0, 1),
+        new Row("Decimals", "Show decimals instead of whole blocks", "decimal", true, 0, 0, 0, 0),
+        new Row("Decimal places", "Digits after the point", "decimals", false, 0, 4, 1, 1),
+        new Row("Nether coords", "Show the overworld equivalent in the Nether", "nether", true, 0, 0, 0, 0)
+    };
+    private static final Row[] ARMOR_ROWS = {
+        new Row("Held item", "Item in the main hand on top", "hand", true, 0, 0, 0, 1),
+        new Row("Off hand", "Item in the off hand", "offhand", true, 0, 0, 0, 0),
+        new Row("Item count", "Stack size for items without durability", "count", true, 0, 0, 0, 1),
+        new Row("Max durability", "Show 512/512 instead of 512", "maxdur", true, 0, 0, 0, 0),
+        new Row("Numbers on the left", "Durability before the icon", "durleft", true, 0, 0, 0, 1),
+        new Row("Damage colors", "Green to red as durability drops", "dmgcolor", true, 0, 0, 0, 1),
+        new Row("Low durability alert", "Blink pieces about to break", "lowwarn", true, 0, 0, 0, 1),
+        new Row("Alert threshold", "Remaining durability % that triggers the alert", "lowpct", false, 5, 50, 5, 20)
+    };
+    private static final Row[] EFFECT_ROWS = {
+        new Row("Effect name", "Name of the effect", "name", true, 0, 0, 0, 1),
+        new Row("Duration", "Time left", "duration", true, 0, 0, 0, 1),
+        new Row("Amplifier", "Level as a number (2 instead of II)", "amplifier", true, 0, 0, 0, 1),
+        new Row("Uppercase names", "SPEED instead of Speed", "uppercase", true, 0, 0, 0, 0),
+        new Row("Icons", "Draw the effect icon", "icons", true, 0, 0, 0, 1),
+        new Row("Blink when low", "Blink effects about to expire", "blink", true, 0, 0, 0, 1),
+        new Row("Hide ambient", "Skip beacon and conduit effects", "hideambient", true, 0, 0, 0, 0),
+        new Row("Text after icon", "Text on the right of the icon", "textright", true, 0, 0, 0, 1),
+        new Row("Small text", "Smaller name and time", "small", true, 0, 0, 0, 0)
+    };
+    private static final Row[] VIEWMODEL_ROWS = {
+        new Row("Offset X", "Hand to the left / right", "vmx", false, -0.6, 0.6, 0.02, 0),
+        new Row("Offset Y", "Hand up / down", "vmy", false, -0.6, 0.6, 0.02, 0),
+        new Row("Offset Z", "Hand forward / back", "vmz", false, -0.6, 0.6, 0.02, 0),
+        new Row("Scale", "Hand size", "vmscale", false, 0.5, 1.5, 0.05, 1)
+    };
+    private static final Row[] CROSSHAIR_ROWS = {
+        new Row("Center dot", "Draw a crisp anti-aliased center dot", "dot", true, 0, 0, 0, 1),
+        new Row("Cross lines", "Draw the 4 crosshair lines", "cross", true, 0, 0, 0, 1),
+        new Row("Outer ring", "Draw a subtle circular ring around the crosshair", "ring", true, 0, 0, 0, 0),
+        new Row("Dynamic spread", "Expand smoothly when attacking, jumping or sprinting", "dynamic", true, 0, 0, 0, 1),
+        new Row("Target highlight", "Turn red when aiming at a living entity", "hitcolor", true, 0, 0, 0, 1),
+        new Row("Line length", "Length of each crosshair arm in pixels", "size", false, 2, 12, 1, 4),
+        new Row("Center gap", "Gap from center to lines in pixels", "gap", false, 1, 10, 1, 3)
+    };
+
+    // animaÃ§Ãµes contÃ­nuas (dt-based â€” suaves em qualquer FPS)
+    private boolean profEdit;
+    private int profEditIdx;
+    private String profBuf = "";
+    private int colorEdit = -1;
+    private float hueSel = 0.33f, satSel = 0.9f, valSel = 1f;
+    private static final int[] PALETTE = new int[24];
+
+    static {
+        for (int k = 0; k < 12; k++) {
+            PALETTE[k] = rgbHsv(k / 12f, 0.85f, 1f);
+        }
+        for (int k = 0; k < 12; k++) {
+            PALETTE[12 + k] = rgbHsv(k / 12f, 0.75f, 0.66f);
+        }
+    }
+
+    private static int rgbHsv(float h, float sat, float v) {
+        float f = h * 6f;
+        int i = (int) f;
+        f -= i;
+        float p = v * (1f - sat);
+        float q = v * (1f - f * sat);
+        float t = v * (1f - (1f - f) * sat);
+        float r, g, b;
+        switch (i) {
+            case 0 -> { r = v; g = t; b = p; }
+             case 1 -> { r = q; g = v; b = p; }
+            case 2 -> { r = p; g = v; b = t; }
+            case 3 -> { r = p; g = q; b = v; }
+            case 4 -> { r = t; g = p; b = v; }
+            default -> { r = v; g = p; b = q; }
+        }
+        return 0xFF000000 | (((int) (r * 255) & 0xFF) << 16) | (((int) (g * 255) & 0xFF) << 8) | ((int) (b * 255) & 0xFF);
+    }
+
+    private int tabEndX;
+    private final java.util.HashMap<String, Float> anims = new java.util.HashMap<>();
+    private final java.util.HashMap<String, Long> press = new java.util.HashMap<>();
+    private long stamp = System.currentTimeMillis();
+    private float dt = 0.016f;
+    private long lastScroll = 0L;
+    private int optShift = 0;
+    // abertura do menu + scroll suave (float: o movimento anda em decimal,
+    // nÃ£o em pixels inteiros â€” era o que fazia o scroll "pular")
+    private final long openedAt = System.currentTimeMillis();
+    private boolean closing = false;
+    private long closedAt = 0L;
+    private float spotX = -1f, spotY = -1f;
+    private long catStamp = System.currentTimeMillis();
+    private long savedStamp = 0L;
+    private float scrollTarget = 0;
+
+    // barra de estado do card (cores da Ui)
+
+    private int tab = 0; // 0 = MODULES, 1 = MODS, 2 = SETTINGS
+    private Boolean crosshairPaint = null;
+    private Object filter = null;   // null = TODOS, "novos" = novos, ModuleCategory = categoria
+    private String query = "";
+    private int sel = 0;
+    private float scrollY = 0;
+    private float optScroll = 0;
+    private float optScrollTarget = 0;
+    private Module option = null;
+    private int optSel = 0;
+    private int drag = 0;
+    private double dragGrab = 0;
+    // arrasto de slider: anda pelo DELTA do mouse desde o clique (nunca "volta")
+    private double dragX0 = 0;
+    private double dragFrac0 = 0;
+    private int profile = 0;
+    private double mx = -999, my = -999;
+
+    // campo de busca prÃ³prio (sem EditBox: sem sombra no texto, visual limpo)
+    private boolean labelEdit = false;
+    private String labelBuf = "";
+    private boolean searchFocus = false;
+    private String searchText = "";
+    private int caret = 0;
+
+    // pills calculadas com quebra de linha (compartilhadas entre input e draw)
+    private final List<Object> pillCats = new ArrayList<>();
+    private final List<int[]> pillRects = new ArrayList<>();
+
+    // lista filtrada em cache (nÃ£o recria a cada frame)
+    private String fkey = null;
+    private List<Module> fcache = List.of();
+
+    private float uiScale = 1f;
+    private int gw, gh, x0, y0, pw, ph, topH, sideW;
+    private int cx, cy, cw, ch, cols, cardW, cardH, gridY;
+
+    public RShiftScreen() {
+        super(Component.literal("Astucy"));
+    }
+
+    /** Abre jÃ¡ nas opÃ§Ãµes de um mÃ³dulo (engrenagem do editor de HUD). */
+    public RShiftScreen(Module open) {
+        this();
+        this.option = open;
+        this.optSel = 0;
+    }
+
+    /**
+     * BotÃ£o esquerdo pressionado? Vem do GLFW, porque o
+     * `MouseHandler.isLeftPressed()` NÃƒO Ã© atualizado enquanto um Screen estÃ¡
+     * aberto â€” o Minecraft sÃ³ grava esse campo com o jogo em jogo; com menu
+     * aberto ele fica travado no Ãºltimo valor (quase sempre false). Era isso
+     * que matava o arrasto do slider no frame seguinte ao clique.
+     */
+    private static boolean leftDown() {
+        try {
+            return GLFW.glfwGetMouseButton(
+                    Minecraft.getInstance().getWindow().getWindow(),
+                    GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    @Override
+    protected void init() {
+        super.init();
+        layout(AstucyFonts.menu());
+    }
+
+    private int[] searchBox() {
+        int right = cx + cw - 10;
+        int pillsRight = cx;
+        for (int[] r : pillRects) {
+            if (r[1] == cy - 2) {
+                pillsRight = Math.max(pillsRight, r[0] + r[2]);
+            }
+        }
+        int avail = right - (pillsRight + 8);
+        if (avail >= 64) {
+            int w = Math.min(136, avail);
+            return new int[]{right - w, cy - 2, w, 18};
+        }
+        int chipLeft = AccountMenu.chipX();
+        if (chipLeft <= 0) {
+            chipLeft = x0 + pw - 26 - 8 - AccountMenu.chipWidth(AstucyFonts.menu());
+        }
+        int topRight = chipLeft - 68;
+        int topLeft = Math.max(cx + 120, tabEndX);
+        int w = Math.max(0, Math.min(160, topRight - topLeft));
+        if (topRight - topLeft < 52) {
+            return new int[]{0, 0, 0, 0};
+        }
+        return new int[]{topLeft, y0 + (topH - 18) / 2, w, 18};
+    }
+
+    /** Aplica o texto digitado ao filtro (minÃºsculo, sem espaÃ§os nas pontas). */
+    private void applyQuery() {
+        query = searchText.trim().toLowerCase();
+        sel = 0;
+        scrollY = 0;
+        scrollTarget = 0;
+    }
+
+    /** Insere o texto digitado na posiÃ§Ã£o do cursor. */
+    private void typeChar(String s) {
+        if (searchText.length() >= 24) {
+            return;
+        }
+        searchText = searchText.substring(0, caret) + s + searchText.substring(caret);
+        caret += s.length();
+        applyQuery();
+    }
+
+    @Override
+    public boolean isPauseScreen() {
+        return false;
+    }
+
+    @Override
+    public void onClose() {
+        if (!closing && AstucyConfig.prefBool("anim", true)) {
+            closing = true;
+            closedAt = System.currentTimeMillis();
+            return;
+        }
+        AstucyConfig.save();
+        super.onClose();
+    }
+
+    private void finishClose() {
+        AstucyConfig.save();
+        super.onClose();
+    }
+
+    /* ------------------------------------------------------------------
+     * geometria
+     * ------------------------------------------------------------------ */
+
+    private float computeUiScale() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc != null && mc.getWindow() != null) {
+            var win = mc.getWindow();
+            int physW = Math.max(1, win.getWidth());
+            int physH = Math.max(1, win.getHeight());
+            double guiScale = Math.max(1.0, win.getGuiScale());
+            double density = Math.max(0.65, Math.min(4.0, Math.min(physW / 1040.0, physH / 700.0)));
+            this.uiScale = (float) (density / guiScale);
+            this.gw = Math.max(1, Math.round((float) (physW / density)));
+            this.gh = Math.max(1, Math.round((float) (physH / density)));
+        } else {
+            this.uiScale = 1f;
+            this.gw = Math.max(1, width);
+            this.gh = Math.max(1, height);
+        }
+        return this.uiScale;
+    }
+
+    private void layout(Font f) {
+        computeUiScale();
+        pw = clamp(Math.round(gw * 0.86f), 660, 900);
+        ph = clamp(Math.round(gh * 0.84f), 420, 560);
+        pw = Math.min(pw, Math.max(200, gw - 16));
+        ph = Math.min(ph, Math.max(160, gh - 16));
+        // animaÃ§Ã£o de abertura e fechamento suave (spring vertical + fade)
+        long nowOpen = System.currentTimeMillis();
+        float openRaw = Math.min(1f, (nowOpen - openedAt) / 240f);
+        float openEase = 1f - (float) Math.pow(1f - openRaw, 3.5);
+        if (closing) {
+            float closeRaw = Math.min(1f, (nowOpen - closedAt) / 130f);
+            openEase = 1f - closeRaw * closeRaw;
+        }
+        int slidePanelY = AstucyConfig.prefBool("anim", true) ? Math.round((1f - openEase) * 12f) : 0;
+
+        x0 = (gw - pw) / 2;
+        y0 = (gh - ph) / 2 + slidePanelY;
+        topH = 44;
+        sideW = clamp(Math.round(pw / 5.8f), 138, 168);
+        cx = x0 + sideW + 12;
+        cy = y0 + topH + 10;
+        cw = pw - sideW - 22;
+        ch = ph - topH - 22;
+        cols = 2;
+        int gridW = cw - 10; // reserva 10px Ã  direita para a scrollbar nÃ£o cobrir os cards
+        cardW = (gridW - (cols - 1) * 8) / cols;
+        cardH = 38;
+
+        layoutPills(f);
+        gridY = pillBottom() + 8;
+    }
+
+    private static String pillLabelText(Object key) {
+        return key == null ? "ALL"
+                : key instanceof String ? "NEW" : ((ModuleCategory) key).label().toUpperCase();
+    }
+
+    private void layoutPills(Font f) {
+        pillCats.clear();
+        pillRects.clear();
+        pillCats.add(null);
+        pillCats.add("novos");
+        int rx = cx;
+        int ry = cy - 2;
+        int[] fixed = {
+            f.width(pillLabelText(null)) + 12,
+            f.width(pillLabelText("novos")) + 12
+        };
+        for (int i = 0; i < 2; i++) {
+            pillRects.add(new int[]{rx, ry, fixed[i], 18});
+            rx += fixed[i] + 4;
+        }
+        for (ModuleCategory c : ModuleCategory.values()) {
+            int w = f.width(pillLabelText(c)) + 12;
+            pillCats.add(c);
+            if (rx > cx && rx + w > cx + cw - 4) {
+                rx = cx;
+                ry += 20;
+            }
+            pillRects.add(new int[]{rx, ry, w, 18});
+            rx += w + 4;
+        }
+    }
+
+    private int pillBottom() {
+        int last = 0;
+        for (int[] r : pillRects) {
+            last = Math.max(last, r[1] + r[3]);
+        }
+        return last;
+    }
+
+    private int maxScroll() {
+        int count = filtered().size();
+        int rows = (count + cols - 1) / cols;
+        int needed = rows * (cardH + 7);
+        return Math.max(0, needed - (cy + ch - gridY));
+    }
+
+    private static int clamp(int v, int lo, int hi) {
+        return Math.max(lo, Math.min(hi, v));
+    }
+
+    private List<Module> filtered() {
+        // cache por frame: evita recriar a lista (e lowercases) vÃ¡rias vezes por frame
+        String key = (filter == null ? "-" : filter.toString()) + "|" + query;
+        if (key.equals(fkey)) {
+            return fcache;
+        }
+        List<Module> out = new ArrayList<>();
+        for (Module m : Modules.all()) {
+            boolean okCat = filter == null
+                    || (filter instanceof String ? m.isNew : m.category == filter);
+            boolean okQ = query.isEmpty()
+                    || m.name.toLowerCase().contains(query)
+                    || m.id.contains(query)
+                    || m.description.toLowerCase().contains(query);
+            if (okCat && okQ) {
+                out.add(m);
+            }
+        }
+        fkey = key;
+        fcache = out;
+        return out;
+    }
+
+    private int optRowH() {
+        // altura fixa (linhas consistentes) â€” o que nÃ£o couber rola com scrollbar
+        return 20;
+    }
+
+    /** PosiÃ§Ã£o do scroll em pixels (o estado Ã© float; arredonda sÃ³ na hora de desenhar). */
+    private int optScrollPx() {
+        return Math.round(optScroll);
+    }
+
+    private int gridScrollPx() {
+        return Math.round(scrollY);
+    }
+
+    private int optRowY(int i) {
+        return cy + 28 + i * optRowH() + optShift - optScrollPx();
+    }
+
+    /** Altura visÃ­vel da lista de opÃ§Ãµes (entre cabeÃ§alho e rodapÃ©). */
+    private int optViewH() {
+        return Math.max(40, (cy + ch - 30) - (cy + 26));
+    }
+
+    private int optMaxScroll() {
+        return Math.max(0, rowCount() * optRowH() - optViewH());
+    }
+
+    /* ---- geometria das scrollbars (compartilhada entre clique e desenho) ---- */
+
+    private int gridTrackY() {
+        return gridY;
+    }
+
+    private int gridTrackH() {
+        return Math.max(1, cy + ch - gridY);
+    }
+
+    private int gridThumbH() {
+        int trackH = gridTrackH();
+        int max = maxScroll();
+        return Math.max(22, (int) ((long) trackH * trackH / (trackH + max)));
+    }
+
+    private int gridThumbY() {
+        int trackH = gridTrackH();
+        int thumbH = gridThumbH();
+        int max = maxScroll();
+        return gridTrackY() + (int) Math.round(scrollY * (trackH - thumbH) / (double) Math.max(1, max));
+    }
+
+    private int optTrackY() {
+        return cy + 26;
+    }
+
+    private int optTrackH() {
+        return optViewH();
+    }
+
+    private int optThumbH() {
+        int trackH = optTrackH();
+        int max = optMaxScroll();
+        return Math.max(20, (int) ((long) trackH * trackH / (trackH + max)));
+    }
+
+    private int optThumbY() {
+        int trackH = optTrackH();
+        int thumbH = optThumbH();
+        int max = optMaxScroll();
+        return optTrackY() + (int) Math.round(optScroll * (trackH - thumbH) / (double) Math.max(1, max));
+    }
+
+    /** Zona de pega da barra (mais larga que os 3px desenhados). */
+    private boolean onGridBar(int px, int py) {
+        return maxScroll() > 0 && px >= cx + cw - 18 && px < cx + cw + 8
+                && py >= gridTrackY() && py < gridTrackY() + gridTrackH();
+    }
+
+    private boolean onOptBar(int px, int py) {
+        return optMaxScroll() > 0 && px >= cx + cw - 18 && px < cx + cw + 8
+                && py >= optTrackY() && py < optTrackY() + optTrackH();
+    }
+
+    /** Passo entre as amostras de cor: encolhe junto com o painel. */
+    private int swPitch() {
+        int avail = Math.max(120, (cx + cw - 34) - sliderX());
+        return Math.max(9, Math.min(16, avail / 16));
+    }
+
+    private int swSize() {
+        return Math.min(13, swPitch() - 2);
+    }
+
+    private int sliderX() {
+        return cx + clamp(cw / 3, 96, 138);
+    }
+
+    private int sliderW() {
+        return cw - (sliderX() - cx) - 52;
+    }
+
+    /* ------------------------------------------------------------------
+     * input
+     * ------------------------------------------------------------------ */
+
+    @Override
+    public void mouseMoved(double x, double y) {
+        super.mouseMoved(x, y);
+        float s = computeUiScale();
+        this.mx = x / s;
+        this.my = y / s;
+    }
+
+    @Override
+    public boolean mouseScrolled(double x, double y, double dX, double dY) {
+        // com o botÃ£o preso num slider, a roda nÃ£o mexe a lista (senÃ£o a linha
+        // foge debaixo do cursor e o arrasto parece travado)
+        if (drag == 1 || drag == 2 || drag == 3 || drag == 6 || drag >= 100) {
+            return true;
+        }
+        lastScroll = System.currentTimeMillis();
+        if (option != null) {
+            optScrollTarget -= (float) (dY * 24);
+            optScrollTarget = Math.max(0f, Math.min(optMaxScroll(), optScrollTarget));
+            return true;
+        }
+        float max = maxScroll();
+        scrollTarget -= (float) (dY * 28);
+        scrollTarget = Math.max(0f, Math.min(max, scrollTarget));
+        return true;
+    }
+
+    @Override
+    public boolean mouseDragged(double mx, double my, int button, double x, double y) {
+        layout(AstucyFonts.menu());
+        this.mx = mx / uiScale;
+        this.my = my / uiScale;
+        if (crosshairPaint != null && tab == 0 && option != null && "crosshair".equals(option.id)) {
+            int cell = crosshairCell();
+            int gx0 = cx + 8;
+            int gy0 = cy + 36;
+            int gridPx = 17 * cell;
+            if (mx >= gx0 && mx < gx0 + gridPx && my >= gy0 && my < gy0 + gridPx) {
+                int cpx = (int) Math.floor((mx - gx0) / cell);
+                int cpy = (int) Math.floor((my - gy0) / cell);
+                if (cpx >= 0 && cpx < 17 && cpy >= 0 && cpy < 17) {
+                    AstucyConfig.setCrosshairPixel(cpx, cpy, crosshairPaint);
+                }
+            }
+            return true;
+        }
+        if (drag != 0) {
+            applyDrag();
+            return true;
+        }
+        return super.mouseDragged(mx, my, button, x, y);
+    }
+
+    /**
+     * Aplica o arrasto a partir da posiÃ§Ã£o atual do mouse. Chamado pelo evento
+     * E pelo render (fallback): se o evento de drag nÃ£o chegar, o slider ainda
+     * segue o mouse â€” era o "nÃ£o dÃ¡ pra arrastar".
+     */
+    private void applyDrag() {
+        if (drag == 4) {
+            int max = maxScroll();
+            int span = Math.max(1, gridTrackH() - gridThumbH());
+            double f = Math.max(0, Math.min(1, (my - gridTrackY() - dragGrab) / (double) span));
+            scrollTarget = (float) (f * max);
+            scrollY = scrollTarget;
+            return;
+        }
+        if (drag == 5) {
+            int max = optMaxScroll();
+            int span = Math.max(1, optTrackH() - optThumbH());
+            double f = Math.max(0, Math.min(1, (my - optTrackY() - dragGrab) / (double) span));
+            optScrollTarget = (float) (f * max);
+            optScroll = optScrollTarget;
+            return;
+        }
+        if (drag == 7 || drag == 8) {
+            if (option == null || colorEdit < 0) {
+                return;
+            }
+            int[] pr = paletteRect();
+            int wx = pr[0] + 8;
+            int wy = pr[1] + 22;
+            int ws = 88;
+            if (drag == 7) {
+                applyWheel((int) mx, (int) my, wx, wy, ws);
+            } else {
+                applyBar((int) mx, wx, ws);
+            }
+            return;
+        }
+        if (option == null) {
+            return;
+        }
+        if (drag == 1) {
+            option.scale = round2(0.6 + dragFrac() * 1.4);
+            option.scaleY = Math.max(0.6, Math.min(3.0, option.scale));
+            return;
+        }
+        if (drag == 2) {
+            int alpha = (int) Math.round(dragFrac() * 255.0);
+            option.bgColor = (clamp(alpha, 0, 255) << 24) | (option.bgColor & 0xFFFFFF);
+            return;
+        }
+        if (drag == 6) {
+            option.scaleY = round2(0.6 + dragFrac() * 2.4);
+            return;
+        }
+        if (drag >= 100) {
+            Row[] rows = rows();
+            int k = drag - 100 - styleRows();
+            if (rows != null && k >= 0 && k < rows.length) {
+                Row r = rows[k];
+                option.props.put(r.prop(), clampNum(snap(r.min() + dragFrac() * (r.max() - r.min()), r.step()),
+                        r.min(), r.max()));
+            }
+        }
+    }
+
+    /** ComeÃ§a um arrasto de slider a partir da fraÃ§Ã£o atual. */
+    private void beginDrag(int id, double frac0) {
+        drag = id;
+        dragX0 = mx;
+        dragFrac0 = Math.max(0, Math.min(1, frac0));
+    }
+
+    /** FraÃ§Ã£o do slider: a do comeÃ§o + o quanto o mouse andou desde entÃ£o. */
+    private double dragFrac() {
+        return Math.max(0, Math.min(1, dragFrac0 + (mx - dragX0) / (double) sliderW()));
+    }
+
+    /** FraÃ§Ã£o que um controle jÃ¡ estÃ¡ mostrando (pra comeÃ§ar o arrasto sem pular). */
+    private double controlFrac(int id, int row) {
+        if (option == null) {
+            return 0;
+        }
+        if (id == 1) {
+            return (option.scale - 0.6) / 1.4;
+        }
+        if (id == 2) {
+            return ((option.bgColor >>> 24) & 0xFF) / 255.0;
+        }
+        if (id == 6) {
+            return (option.scaleY - 0.6) / 2.4;
+        }
+        if (id >= 100) {
+            Row r = modRow(row);
+            if (r != null) {
+                return (rowNum(r) - r.min()) / (r.max() - r.min());
+            }
+        }
+        return 0;
+    }
+
+    @Override
+    public boolean mouseReleased(double mx, double my, int button) {
+        if (crosshairPaint != null) {
+            crosshairPaint = null;
+            AstucyConfig.save();
+        }
+        if (drag != 0) {
+            AstucyConfig.save();
+        }
+        drag = 0;
+        return super.mouseReleased(mx, my, button);
+    }
+
+    private double sliderFrac() {
+        return Math.max(0, Math.min(1, (mx - sliderX()) / (double) sliderW()));
+    }
+
+    /** Salva o texto do rÃ³tulo digitado e sai do modo de ediÃ§Ã£o. */
+    private void commitLabel() {
+        if (option != null) {
+            option.customLabel = labelBuf == null ? "" : labelBuf.trim();
+            AstucyConfig.save();
+        }
+        labelEdit = false;
+    }
+
+    private static double round2(double v) {
+        return Math.round(v * 100.0) / 100.0;
+    }
+
+    private static double snap(double v, double step) {
+        return Math.round(v / step) * step;
+    }
+
+    @Override
+    public boolean mouseClicked(double clickX, double clickY, int button) {
+        layout(AstucyFonts.menu());
+        // clicar fora do campo de rÃ³tulo salva o que foi digitado
+        if (labelEdit) {
+            commitLabel();
+        }
+        // posiÃ§Ã£o do EVENTO (mx podia estar um clique atrasado â€” era o slider
+        // que "ia pra frente e voltava sozinho")
+        this.mx = clickX / uiScale;
+        this.my = clickY / uiScale;
+        // clique novo sempre zera arrasto antigo (nada fica "preso")
+        drag = 0;
+        int px = (int) mx;
+        int py = (int) my;
+        Font f = AstucyFonts.menu();
+
+        // conta (chip no topo / dropdown): consome o clique quando age
+        if (AccountMenu.click(px, py, button)) {
+            return true;
+        }
+
+        // botÃ£o Dark / Light mode pill ao lado do chip da conta
+        int chipLeft = AccountMenu.chipX() > 0 ? AccountMenu.chipX()
+                : (x0 + pw - 26 - 8 - AccountMenu.chipWidth(f));
+        int tBtnW = 54;
+        int tBtnX = chipLeft - tBtnW - 6;
+        int tBtnY = y0 + (topH - 18) / 2;
+        if (inside(px, py, tBtnX, tBtnY, tBtnW, 18)) {
+            AstucyConfig.setPref("light_mode", !AstucyConfig.prefBool("light_mode", false));
+            return true;
+        }
+
+        // campo de pesquisa (topo) prioriza o foco
+        if (tab == 0 && option == null) {
+            int[] sb = searchBox();
+            if (inside(px, py, sb[0], sb[1], sb[2], sb[3])) {
+                if (button == 1 || (!searchText.isEmpty() && px >= sb[0] + sb[2] - 16)) {
+                    searchText = "";
+                    caret = 0;
+                    applyQuery();
+                    return true;
+                }
+                searchFocus = true;
+                caret = searchText.length();
+                return true;
+            }
+        }
+        searchFocus = false;
+
+        // fechar
+        if (inside(px, py, x0 + pw - 26, y0 + 7, 18, 18)) {
+            onClose();
+            return true;
+        }
+        // abas (pills â€” mesma geometria do desenho)
+        int t1x = x0 + sideW + 14;
+        int t1w = 58;
+        int t2x = t1x + t1w + 4;
+        int t2w = 42;
+        int stx = t2x + t2w + 4;
+        int gwTab = 54;
+        if (inside(px, py, t1x, y0 + 6, t1w, topH - 12)) {
+            tab = 0;
+            option = null;
+            catStamp = System.currentTimeMillis();
+            return true;
+        }
+        if (inside(px, py, t2x, y0 + 6, t2w, topH - 12)) {
+            tab = 1;
+            option = null;
+            catStamp = System.currentTimeMillis();
+            return true;
+        }
+        if (inside(px, py, stx, y0 + 6, gwTab, topH - 12)) {
+            tab = 2;
+            option = null;
+            catStamp = System.currentTimeMillis();
+            return true;
+        }
+
+        // sidebar
+        int sy = y0 + topH + 22;
+        for (int i = 0; i < PROFILES.length; i++) {
+            if (inside(px, py, x0 + 10, sy + i * 22, sideW - 20, 18)) {
+                if (button == 1) {
+                    profEdit = true;
+                    profEditIdx = i;
+                    profBuf = AstucyConfig.profileName(i);
+                    profile = i;
+                    return true;
+                }
+                if (profEdit && profEditIdx != i) {
+                    profEdit = false;
+                }
+                profile = i;
+                AstucyConfig.applyProfile(AstucyConfig.profileName(i));
+                catStamp = System.currentTimeMillis();
+                return true;
+            }
+        }
+        int sideBtnY = sy + PROFILES.length * 22 + 6;
+        if (inside(px, py, x0 + 10, sideBtnY, sideW - 20, 20)) {
+            AstucyConfig.saveProfile(AstucyConfig.profileName(profile));
+            savedStamp = System.currentTimeMillis();
+            return true;
+        }
+        if (inside(px, py, x0 + 10, sideBtnY + 24, sideW - 20, 20)) {
+            AstucyConfig.save();
+            minecraft.setScreen(new HudEditorScreen());
+            return true;
+        }
+
+        if (tab == 1) {
+            return super.mouseClicked(clickX, clickY, button);
+        }
+        if (tab == 2) {
+            return clickSettingsTab(px, py);
+        }
+
+        // opÃ§Ãµes de mÃ³dulo
+        if (option != null) {
+            if ("crosshair".equals(option.id)) {
+                return clickCrosshairOptions(px, py, button == 1);
+            }
+            return clickOptions(px, py);
+        }
+
+        // pills (mesma geometria do desenho)
+        for (int i = 0; i < pillRects.size(); i++) {
+            int[] r = pillRects.get(i);
+            if (!inside(px, py, r[0], r[1], r[2], r[3])) {
+                continue;
+            }
+            if (filter != pillCats.get(i)) {
+                catStamp = System.currentTimeMillis();
+            }
+            filter = pillCats.get(i);
+            sel = 0;
+            scrollY = 0;
+            scrollTarget = 0;
+            return true;
+        }
+
+        // scrollbar da grade (arrastÃ¡vel â€” a zona de pega Ã© mais larga que a barra)
+        if (onGridBar(px, py)) {
+            int ty = gridThumbY();
+            int th = gridThumbH();
+            drag = 4;
+            dragGrab = (py >= ty && py < ty + th) ? (py - ty) : th / 2.0;
+            applyDrag();
+            return true;
+        }
+
+        // cards
+        List<Module> list = filtered();
+        for (int i = 0; i < list.size(); i++) {
+            int gx = cx + (i % cols) * (cardW + 8);
+            int gy = gridY + (i / cols) * (cardH + 7) - gridScrollPx();
+            if (!inside(px, py, gx, gy, cardW, cardH)) {
+                continue;
+            }
+            sel = i;
+            Module m = list.get(i);
+            press.put(m.id, System.currentTimeMillis());
+            if (button == 1 || inside(px, py, gx + cardW - 58, gy, 22, cardH)) {
+                option = m;
+                optSel = 0;
+                optScroll = 0;
+                optScrollTarget = 0;
+                anims.put("optIn", 0f);
+                return true;
+            }
+            m.enabled = !m.enabled;
+            AstucyConfig.save();
+            return true;
+        }
+        return super.mouseClicked(clickX, clickY, button);
+    }
+
+    /** RetÃ¢ngulo do controle de cada linha â€” MESMO do desenho e do clique. */
+    private int[] optControl(int i) {
+        int sx = sliderX();
+        int ry = optRowY(i);
+        Row r = modRow(i);
+        if (r != null) {
+            return r.toggle()
+                    ? new int[]{sx, ry - 3, 36, 16}
+                    : new int[]{sx, ry - 4, sliderW() + 2, 18};
+        }
+        return switch (i) {
+            case 0, 2, 10 -> new int[]{sx, ry - 4, sliderW() + 2, 18};  // trilhas de slider
+            case 1, 5, 6, 8 -> new int[]{sx, ry - 3, 36, 16};            // toggles
+            case 3, 4 -> new int[]{sx, ry - 3, swPitch() * Module.SWATCHES.length + 28, 18}; // swatches + RGB
+            case 7 -> new int[]{sx, ry - 3, 136, 17};                    // botÃ£o azul
+            case 9 -> new int[]{sx, ry - 3, sliderW() + 42, 17};          // campo de texto
+            default -> new int[]{sx, ry - 3, 10, 10};
+        };
+    }
+
+    /** Ãndice do controle sob o cursor (-1 = nenhum). */
+    private int controlIndexAt(int px, int py) {
+        int rows = rowCount();
+        for (int i = 0; i < rows; i++) {
+            int[] r = optControl(i);
+            if (r[1] < optTrackY() - 6 || r[1] > optTrackY() + optTrackH()) {
+                continue;
+            }
+            if (inside(px, py, r[0], r[1], r[2], r[3])) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** Converte o Ã­ndice da linha no id de arrasto (0 = nÃ£o arrastÃ¡vel). */
+    private int dragIdFor(int i) {
+        if (i < 0) {
+            return 0;
+        }
+        Row mr = modRow(i);
+        if (mr != null) {
+            return mr.toggle() ? 0 : 100 + i;
+        }
+        return switch (i) {
+            case 0 -> 1;
+            case 2 -> 2;
+            case 10 -> 6;
+            default -> 0;
+        };
+    }
+
+    private int[] paletteRect() {
+        return new int[]{cx + cw - 166, cy + 34, 164, 142};
+    }
+
+    private void applyPicked() {
+        int col = rgbHsv(hueSel, satSel, valSel) & 0xFFFFFF;
+        int cur = colorEdit == 1 ? option.fgColor : option.bgColor;
+        if (colorEdit == 1) {
+            option.fgColor = ((cur >>> 24) & 0xFF) << 24 | col;
+        } else {
+            option.bgColor = ((cur >>> 24) & 0xFF) << 24 | col;
+        }
+    }
+
+    private void applyWheel(int px, int py, int wx, int wy, int ws) {
+        float dx = (px - (wx + ws / 2f)) / (ws / 2f - 2f);
+        float dy = (py - (wy + ws / 2f)) / (ws / 2f - 2f);
+        float rad = (float) Math.sqrt(dx * dx + dy * dy);
+        float h2 = (float) (Math.atan2(dy, dx) / (Math.PI * 2));
+        if (h2 < 0) {
+            h2 += 1f;
+        }
+        hueSel = Math.max(0f, Math.min(1f, h2));
+        satSel = Math.max(0f, Math.min(1f, rad));
+        applyPicked();
+    }
+
+    private void applyBar(int px, int bx, int ws) {
+        float fr = (px - bx) / (float) Math.max(1, ws);
+        valSel = Math.max(0f, Math.min(1f, fr));
+        applyPicked();
+    }
+
+    private void clickPalette(int px, int py) {
+        int[] pr = paletteRect();
+        if (inside(px, py, pr[0] + pr[2] - 15, pr[1] + 5, 11, 11)) {
+            colorEdit = -1;
+            AstucyConfig.save();
+            return;
+        }
+        int wx = pr[0] + 8;
+        int wy = pr[1] + 22;
+        int ws = 88;
+        if (inside(px, py, wx, wy, ws, ws)) {
+            beginDrag(7, 0);
+            applyWheel(px, py, wx, wy, ws);
+            return;
+        }
+        int by = wy + ws + 6;
+        if (inside(px, py, wx, by, ws, 12)) {
+            beginDrag(8, 0);
+            applyBar(px, wx, ws);
+        }
+    }
+
+    private void drawPalette(GuiGraphics g, Font f) {
+        int[] pr = paletteRect();
+        Ui.rrect(g, pr[0], pr[1], pr[2], pr[3], 0xD908080A, 10);
+        g.drawString(f, "Custom color", pr[0] + 9, pr[1] + 7, Ui.TEXT, false);
+        int wx = pr[0] + 8;
+        int wy = pr[1] + 22;
+        int ws = 88;
+        Skin.hueWheel(g, wx, wy, ws);
+        Skin.hueValueBar(g, wx, wy + ws + 6, ws, 10, hueSel, satSel);
+        int col = colorEdit == 1 ? option.fgColor : option.bgColor;
+        int pvx = wx + ws + 8;
+        int pvy = wy + 2;
+        Ui.rrect(g, pvx, pvy, 50, 24, 0xFF000000 | (col & 0xFFFFFF), 6);
+        g.drawString(f, "R " + ((col >>> 16) & 0xFF), pvx, pvy + 28, Ui.TEXT, false);
+        g.drawString(f, "G " + ((col >>> 8) & 0xFF), pvx, pvy + 37, Ui.TEXT, false);
+        g.drawString(f, "B " + (col & 0xFF), pvx, pvy + 46, Ui.TEXT, false);
+        float ang = hueSel * (float) (Math.PI * 2);
+        int cxp = wx + ws / 2 + Math.round((float) Math.cos(ang) * (ws / 2f - 2f) * satSel);
+        int cyp = wy + ws / 2 + Math.round((float) Math.sin(ang) * (ws / 2f - 2f) * satSel);
+        Skin.disc(g, cxp - 3, cyp - 3, 6, 0xA6000000);
+        Skin.disc(g, cxp - 2, cyp - 2, 4, 0xF2FFFFFF);
+        int bxx = wx + Math.round(valSel * (ws - 6));
+        Skin.disc(g, bxx, wy + ws + 9, 8, 0xF2FFFFFF);
+        Ui.ctext(g, f, "X", pr[0] + pr[2] - 10, pr[1] + 7, 0x8CFFFFFF);
+    }
+
+    private void wheelOpenInit() {
+        int cur = colorEdit == 1 ? option.fgColor : option.bgColor;
+        float r = ((cur >>> 16) & 0xFF) / 255f;
+        float g = ((cur >>> 8) & 0xFF) / 255f;
+        float b = (cur & 0xFF) / 255f;
+        float max = Math.max(r, Math.max(g, b));
+        float min = Math.min(r, Math.min(g, b));
+        float d = max - min;
+        float h = 0;
+        if (d > 0) {
+            if (max == r) {
+                h = ((g - b) / d) % 6f;
+            } else if (max == g) {
+                h = 2f + (b - r) / d;
+            } else {
+                h = 4f + (r - g) / d;
+            }
+            h /= 6f;
+            if (h < 0) {
+                h += 1f;
+            }
+        }
+        hueSel = Math.max(0f, Math.min(1f, h));
+        satSel = max <= 0f ? 0f : Math.min(1f, d / max);
+        valSel = max;
+    }
+
+    private boolean clickOptions(int px, int py) {
+        if (colorEdit >= 0) {
+            int[] pr = paletteRect();
+            if (inside(px, py, pr[0], pr[1], pr[2], pr[3])) {
+                clickPalette(px, py);
+                return true;
+            }
+            colorEdit = -1;
+        }
+        // barra de rolagem das opÃ§Ãµes (quando as linhas nÃ£o cabem)
+        if (onOptBar(px, py)) {
+            int ty = optThumbY();
+            int th = optThumbH();
+            drag = 5;
+            dragGrab = (py >= ty && py < ty + th) ? (py - ty) : th / 2.0;
+            applyDrag();
+            return true;
+        }
+        int rows = rowCount();
+        for (int i = 0; i < rows; i++) {
+            int[] r = optControl(i);
+            if (r[1] < optTrackY() - 6 || r[1] > optTrackY() + optTrackH()) {
+                continue;   // linha fora da Ã¡rea visÃ­vel
+            }
+            if (!inside(px, py, r[0], r[1], r[2], r[3])) {
+                continue;
+            }
+            if (i == 3 || i == 4) {
+                int bx = sliderX() + swPitch() * Module.SWATCHES.length + 2;
+                if (inside(px, py, bx, r[1], 24, 18)) {
+                    colorEdit = i - 3;
+                    wheelOpenInit();
+                    return true;
+                }
+            }
+            Row mrow = modRow(i);
+            if (mrow != null) {
+                if (mrow.toggle()) {
+                    option.props.put(mrow.prop(), !rowBool(mrow));
+                } else {
+                    double f0 = sliderFrac();
+                    beginDrag(100 + i, f0);
+                    option.props.put(mrow.prop(), clampNum(
+                            snap(mrow.min() + f0 * (mrow.max() - mrow.min()), mrow.step()),
+                            mrow.min(), mrow.max()));
+                }
+                AstucyConfig.save();
+                return true;
+            }
+            switch (i) {
+                case 0 -> {
+                    double f0 = sliderFrac();
+                    beginDrag(1, f0);
+                    option.scale = round2(0.6 + f0 * 1.4);
+                }
+                case 1 -> {
+                    option.bg = !option.bg;
+                    AstucyConfig.save();
+                }
+                case 2 -> {
+                    double f0 = sliderFrac();
+                    beginDrag(2, f0);
+                    int alpha = (int) Math.round(f0 * 255.0);
+                    option.bgColor = (clamp(alpha, 0, 255) << 24) | (option.bgColor & 0xFFFFFF);
+                }
+                case 3 -> {
+                    int idx = clamp((px - sliderX()) / swPitch(), 0, Module.SWATCHES.length - 1);
+                    option.bgColor = ((option.bgColor >>> 24) & 0xFF) << 24 | (Module.SWATCHES[idx] & 0xFFFFFF);
+                    AstucyConfig.save();
+                }
+                case 4 -> {
+                    int idx = clamp((px - sliderX()) / swPitch(), 0, Module.SWATCHES.length - 1);
+                    option.fgColor = Module.SWATCHES[idx];
+                    AstucyConfig.save();
+                }
+                case 5 -> {
+                    option.shadow = !option.shadow;
+                    AstucyConfig.save();
+                }
+                case 6 -> {
+                    option.prefix = !option.prefix;
+                    AstucyConfig.save();
+                }
+                case 7 -> {
+                    AstucyConfig.save();
+                    minecraft.setScreen(new HudEditorScreen());
+                }
+                case 8 -> {
+                    option.props.put("font", !option.boolProp("font", true));
+                    AstucyConfig.save();
+                }
+                case 9 -> {
+                    labelEdit = true;
+                    labelBuf = option.customLabel == null ? "" : option.customLabel;
+                }
+                case 10 -> {
+                    double f0 = sliderFrac();
+                    beginDrag(6, f0);
+                    option.scaleY = round2(0.6 + f0 * 2.4);
+                }
+                default -> { }
+            }
+            return true;
+        }
+        int by = cy + ch - 26;
+        if (inside(px, py, cx, by, 136, 18)) {
+            option.resetStyle();
+            AstucyConfig.save();
+            return true;
+        }
+        if (inside(px, py, cx + 146, by, 136, 18)) {
+            option = null;
+            optScroll = 0;
+            optScrollTarget = 0;
+            return true;
+        }
+        return true;
+    }
+
+    @Override
+    public boolean keyPressed(int key, int scanCode, int modifiers) {
+        // dropdown de conta aberto: ESC sÃ³ fecha ele
+        if (AccountMenu.key(key)) {
+            return true;
+        }
+        // renomeando o perfil
+        if (profEdit) {
+            if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER || key == GLFW.GLFW_KEY_ESCAPE) {
+                if (key != GLFW.GLFW_KEY_ESCAPE) {
+                    AstucyConfig.renameProfile(profEditIdx, profBuf);
+                }
+                profEdit = false;
+                return true;
+            }
+            if (key == GLFW.GLFW_KEY_BACKSPACE) {
+                if (!profBuf.isEmpty()) {
+                    profBuf = profBuf.substring(0, profBuf.length() - 1);
+                }
+                return true;
+            }
+            return true;
+        }
+
+        // editando o rÃ³tulo do mÃ³dulo
+        if (labelEdit) {
+            if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER || key == GLFW.GLFW_KEY_ESCAPE) {
+                commitLabel();
+                return true;
+            }
+            if (key == GLFW.GLFW_KEY_BACKSPACE) {
+                if (!labelBuf.isEmpty()) {
+                    labelBuf = labelBuf.substring(0, labelBuf.length() - 1);
+                }
+                return true;
+            }
+            return true;
+        }
+        // campo de busca em foco: teclas edita o texto (sem EditBox, sem sombra)
+        if (searchFocus) {
+            switch (key) {
+                case GLFW.GLFW_KEY_ESCAPE, GLFW.GLFW_KEY_TAB -> {
+                    searchFocus = false;
+                    return true;
+                }
+                case GLFW.GLFW_KEY_BACKSPACE -> {
+                    if (caret > 0) {
+                        searchText = searchText.substring(0, caret - 1) + searchText.substring(caret);
+                        caret--;
+                        applyQuery();
+                    }
+                    return true;
+                }
+                case GLFW.GLFW_KEY_DELETE -> {
+                    if (caret < searchText.length()) {
+                        searchText = searchText.substring(0, caret) + searchText.substring(caret + 1);
+                        applyQuery();
+                    }
+                    return true;
+                }
+                case GLFW.GLFW_KEY_LEFT -> {
+                    caret = Math.max(0, caret - 1);
+                    return true;
+                }
+                case GLFW.GLFW_KEY_RIGHT -> {
+                    caret = Math.min(searchText.length(), caret + 1);
+                    return true;
+                }
+                case GLFW.GLFW_KEY_HOME -> {
+                    caret = 0;
+                    return true;
+                }
+                case GLFW.GLFW_KEY_END -> {
+                    caret = searchText.length();
+                    return true;
+                }
+                case GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> {
+                    return true;
+                }
+                default -> {
+                    return true;
+                }
+            }
+        }
+        if (key == GLFW.GLFW_KEY_ESCAPE || key == GLFW.GLFW_KEY_RIGHT_SHIFT) {
+            if (option != null) {
+                option = null;
+            } else {
+                onClose();
+            }
+            return true;
+        }
+        if (key == GLFW.GLFW_KEY_TAB) {
+            tab = (tab + 1) % 3;
+            option = null;
+            catStamp = System.currentTimeMillis();
+            return true;
+        }
+        if (option != null) {
+            int rows = rowCount();
+            switch (key) {
+                case GLFW.GLFW_KEY_UP -> optSel = Math.floorMod(optSel - 1, rows);
+                case GLFW.GLFW_KEY_DOWN -> optSel = Math.floorMod(optSel + 1, rows);
+                case GLFW.GLFW_KEY_LEFT -> adjustOption(-1);
+                case GLFW.GLFW_KEY_RIGHT -> adjustOption(1);
+                default -> {
+                    return super.keyPressed(key, scanCode, modifiers);
+                }
+            }
+            return true;
+        }
+        if (tab == 0) {
+            List<Module> list = filtered();
+            switch (key) {
+                case GLFW.GLFW_KEY_LEFT -> sel = Math.max(0, sel - 1);
+                case GLFW.GLFW_KEY_RIGHT -> sel = Math.min(list.size() - 1, sel + 1);
+                case GLFW.GLFW_KEY_UP -> sel = Math.max(0, sel - cols);
+                case GLFW.GLFW_KEY_DOWN -> sel = Math.min(list.size() - 1, sel + cols);
+                case GLFW.GLFW_KEY_ENTER -> {
+                    if (sel < list.size()) {
+                        option = list.get(sel);
+                        optSel = 0;
+                        optScroll = 0;
+                        optScrollTarget = 0;
+                        anims.put("optIn", 0f);
+                    }
+                    return true;
+                }
+                case GLFW.GLFW_KEY_SPACE -> {
+                    if (sel < list.size()) {
+                        list.get(sel).enabled = !list.get(sel).enabled;
+                        AstucyConfig.save();
+                    }
+                    return true;
+                }
+                default -> {
+                    return super.keyPressed(key, scanCode, modifiers);
+                }
+            }
+            return true;
+        }
+        return super.keyPressed(key, scanCode, modifiers);
+    }
+
+    @Override
+    public boolean charTyped(char codePoint, int modifiers) {
+        String s = String.valueOf(codePoint);
+        if (labelEdit) {
+            if (codePoint >= ' ' && labelBuf.length() < 16) {
+                labelBuf += s;
+            }
+            return true;
+        }
+        if (profEdit) {
+            if (codePoint >= ' ' && profBuf.length() < 20) {
+                profBuf += s;
+            }
+            return true;
+        }
+        if (searchFocus) {
+            if (codePoint >= ' ') {
+                typeChar(s);
+            }
+            return true;
+        }
+        return super.charTyped(codePoint, modifiers);
+    }
+
+    private void adjustOption(int dir) {
+        Row mrow = modRow(optSel);
+        if (mrow != null) {
+            if (mrow.toggle()) {
+                option.props.put(mrow.prop(), !rowBool(mrow));
+            } else {
+                option.props.put(mrow.prop(), clampNum(
+                        snap(rowNum(mrow) + dir * mrow.step(), mrow.step()), mrow.min(), mrow.max()));
+            }
+            AstucyConfig.save();
+            return;
+        }
+        switch (optSel) {
+            case 0 -> {
+                option.scale = Math.max(0.6, Math.min(2.0, snap(option.scale + dir * 0.05, 0.05)));
+                option.scaleY = Math.max(0.6, Math.min(3.0, option.scale));
+            }
+            case 1 -> option.bg = !option.bg;
+            case 2 -> {
+                int a = ((option.bgColor >>> 24) & 0xFF) + dir * 13;
+                option.bgColor = (clamp(a, 0, 255) << 24) | (option.bgColor & 0xFFFFFF);
+            }
+            case 3 -> {
+                int i = (option.bgColor & 0xFFFFFF) == (Module.SWATCHES[0] & 0xFFFFFF) ? 0 : swatchIndex(option.bgColor);
+                option.bgColor = ((option.bgColor >>> 24) & 0xFF) << 24
+                        | (Module.SWATCHES[Math.floorMod(i + dir, Module.SWATCHES.length)] & 0xFFFFFF);
+            }
+            case 4 -> {
+                int i = swatchIndex(option.fgColor);
+                option.fgColor = Module.SWATCHES[Math.floorMod(i + dir, Module.SWATCHES.length)];
+            }
+            case 5 -> option.shadow = !option.shadow;
+            case 6 -> option.prefix = !option.prefix;
+            case 7 -> {
+                AstucyConfig.save();
+                minecraft.setScreen(new HudEditorScreen());
+            }
+            case 8 -> option.props.put("font", !option.boolProp("font", true));
+            case 10 -> option.scaleY = Math.max(0.6, Math.min(3.0, snap(option.scaleY + dir * 0.05, 0.05)));
+            default -> { }
+        }
+        AstucyConfig.save();
+    }
+
+    private static int swatchIndex(int rgb) {
+        for (int i = 0; i < Module.SWATCHES.length; i++) {
+            if ((Module.SWATCHES[i] & 0xFFFFFF) == rgb) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    private static boolean inside(int px, int py, int x, int y, int w, int h) {
+        return px >= x && px < x + w && py >= y && py < y + h;
+    }
+
+    /* ------------------------------------------------------------------
+     * desenho
+     * ------------------------------------------------------------------ */
+
+    @Override
+    public void renderBackground(GuiGraphics g, int mouseX, int mouseY, float partial) {
+        if (minecraft != null && minecraft.level == null) {
+            renderPanorama(g, partial);
+        }
+        if (AstucyConfig.prefBool("menu_blur", true)) {
+            renderBlurredBackground();
+        }
+    }
+
+    @Override
+    public void render(GuiGraphics g, int mouseX, int mouseY, float partial) {
+        super.render(g, mouseX, mouseY, partial);
+        Font f = AstucyFonts.menu();
+        layout(f);
+
+        // tempo do frame (animaÃ§Ãµes independentes de FPS)
+        long nowMs = System.currentTimeMillis();
+        dt = Math.min(0.06f, Math.max(0.002f, (nowMs - stamp) / 1000f));
+        stamp = nowMs;
+
+        // scroll com inÃ©rcia (smooth, em decimal â€” nada de arredondar por frame)
+        float k = Math.min(1f, dt * 24f);
+        scrollY += (scrollTarget - scrollY) * k;
+        if (Math.abs(scrollTarget - scrollY) < 0.02f) {
+            scrollY = scrollTarget;
+        }
+        optScroll += (optScrollTarget - optScroll) * k;
+        if (Math.abs(optScrollTarget - optScroll) < 0.02f) {
+            optScroll = optScrollTarget;
+        }
+
+        // cursor ao vivo do MouseHandler: durante um arrasto o mouseX/mouseY do
+        // frame fica congelado (era o slider que "travava" no meio do movimento)
+        Minecraft mcHud = Minecraft.getInstance();
+        var winHud = mcHud.getWindow();
+        this.mx = (mcHud.mouseHandler.xpos() * winHud.getGuiScaledWidth() / Math.max(1, winHud.getScreenWidth())) / uiScale;
+        this.my = (mcHud.mouseHandler.ypos() * winHud.getGuiScaledHeight() / Math.max(1, winHud.getScreenHeight())) / uiScale;
+
+        // arrasto direto: segurar o botÃ£o sobre a barra ou um slider jÃ¡ arrasta
+        // (nÃ£o depende do evento de clique â€” clique rÃ¡pido nÃ£o "perde" mais o arrasto)
+        if (drag == 0 && leftDown()) {
+            int px = (int) mx;
+            int py = (int) my;
+            if (onOptBar(px, py)) {
+                int th = optThumbH();
+                int ty = optThumbY();
+                drag = 5;
+                dragGrab = (py >= ty && py < ty + th) ? (py - ty) : th / 2.0;
+                applyDrag();
+            } else if (option == null && onGridBar(px, py)) {
+                int th = gridThumbH();
+                int ty = gridThumbY();
+                drag = 4;
+                dragGrab = (py >= ty && py < ty + th) ? (py - ty) : th / 2.0;
+                applyDrag();
+            } else if (option != null) {
+                int ci = controlIndexAt(px, py);
+                int id = dragIdFor(ci);
+                if (id != 0) {
+                    beginDrag(id, controlFrac(id, ci));
+                }
+            }
+        }
+
+        // arrasto: segue o mouse enquanto o botÃ£o estiver preso. Quem encerra Ã©
+        // o mouseReleased â€” nÃ£o dÃ¡ pra perguntar "o botÃ£o estÃ¡ solto?" a cada
+        // frame porque nenhuma fonte Ã© confiÃ¡vel dentro de um Screen.
+        if (drag != 0) {
+            applyDrag();
+        }
+
+        // animaÃ§Ã£o de abertura / fechamento
+        float openRaw = Math.min(1f, (nowMs - openedAt) / 240f);
+        float openEase = 1f - (float) Math.pow(1f - openRaw, 3.5);
+        if (closing) {
+            float closeRaw = Math.min(1f, (nowMs - closedAt) / 130f);
+            if (closeRaw >= 1f) {
+                finishClose();
+                return;
+            }
+            openEase = 1f - closeRaw * closeRaw;
+        }
+
+        // cursor spotlight suavizado
+        if (spotX < 0f) {
+            spotX = (float) mx;
+            spotY = (float) my;
+        } else {
+            float sk = Math.min(1f, dt * 18f);
+            spotX += ((float) mx - spotX) * sk;
+            spotY += ((float) my - spotY) * sk;
+        }
+
+        g.pose().pushPose();
+        g.pose().scale(uiScale, uiScale, 1f);
+        try {
+            // fundo: blur real aplicado no renderBackground + vinheta atmosfÃ©rica
+        int scrimA = Math.round(0x5C * openEase);
+        Ui.rect(g, 0, 0, gw, gh, (scrimA << 24) | 0x030508);
+
+        // partÃ­culas esmeralda sutis flutuando atrÃ¡s do painel (1:1 com Rust)
+        float nowSecs = nowMs / 1000f;
+        for (int i = 0; i < 18; i++) {
+            float fi = i;
+            float ppx = (float) ((fi * 0.417 + nowSecs * (0.015 + (i % 3) * 0.005)) % 1.0) * gw;
+            float ppy = (float) ((((fi * 0.731 - nowSecs * (0.020 + (i % 4) * 0.004)) % 1.0) + 1.0) % 1.0) * gh;
+            int pa = Math.round((42f + 48f * Math.abs((float) Math.sin(nowSecs * 2.2 + fi))) * openEase);
+            int psz = (i % 3 == 0) ? 2 : 1;
+            Ui.rect(g, Math.round(ppx), Math.round(ppy), psz, psz, (pa << 24) | 0x4ADE80);
+        }
+
+        boolean lm = AstucyConfig.prefBool("light_mode", false);
+        int pPanel = lm ? 0xF6F8FAFC : 0xF4070A0F;
+        int pChip = lm ? 0xFFE2E8F0 : 0xFF10141D;
+        int pText = lm ? 0xFF0F172A : 0xFFFFFFFF;
+        int pMuted = lm ? 0xFF475569 : 0xFF8A94A6;
+        int pBorderRgb = lm ? 0x0F172A : 0xFFFFFF;
+
+        // painel principal: obsidiana profunda (dark) ou vidro claro (light)
+        int pr = 12;
+        Ui.shadow(g, x0, y0, pw, ph);
+        if (lm || !Skin.boxGrad(g, x0, y0, pw, ph, 0xF4080B10, 0xF805070B, pr)) {
+            Ui.rrect(g, x0, y0, pw, ph, pPanel, pr);
+        }
+        Ui.rframe(g, x0, y0, pw, ph, ((lm ? 0x26 : 0x18) << 24) | pBorderRgb, pr);
+        if (!lm) {
+            Skin.noise(g, x0 + 4, y0 + 4, pw - 8, ph - 8);
+        }
+
+        Module mb = Modules.find("menublur");
+        boolean showSpot = mb == null || !mb.enabled || mb.boolProp("spotlight", true);
+        if (showSpot && inside((int) mx, (int) my, x0, y0, pw, ph)) {
+            g.enableScissor(x0 + 2, y0 + 2, x0 + pw - 2, y0 + ph - 2);
+            Skin.glow(g, Math.round(spotX), Math.round(spotY), 80, 0x0C22C55E);
+            g.disableScissor();
+        }
+
+        // divisÃ³ria sutil do cabeÃ§alho
+        Ui.hline(g, x0 + 6, y0 + topH, pw - 12, ((lm ? 0x18 : 0x10) << 24) | pBorderRgb);
+
+        // laterais: sidebar encaixada
+        if (lm) {
+            Ui.rrect(g, x0 + 6, y0 + topH + 5, sideW - 4, ph - topH - 11, 0xAAE2E8F0, 9);
+        } else if (!Skin.boxGrad(g, x0 + 6, y0 + topH + 5, sideW - 4, ph - topH - 11, 0x58030508, 0x70020306, 9)) {
+            Ui.rrect(g, x0 + 6, y0 + topH + 5, sideW - 4, ph - topH - 11, 0x48000000, 9);
+        }
+        // painel de opcoes do modulo: mesmo tom da sidebar
+        if (option != null && tab == 0) {
+            Ui.rrect(g, cx - 6, cy - 4, cw + 12, ch + 8, lm ? 0x220F172A : 0x36000000, 9);
+        }
+
+        // topo: logo oficial Astucy girando e voando atÃ© encaixar ao lado de ASTUCY + abas com indicador esmeralda
+        float irisX = x0 + 18f;
+        float irisY = y0 + topH / 2f;
+        float logoFlight = Math.min(1f, Math.max(0f, (nowMs - openedAt) / 520f));
+        float logoIdleAng = (float) ((nowMs % 9000L) / 9000.0 * Math.PI * 2.0);
+        Skin.logoTravel(g,
+                x0 + pw * 0.36f, y0 + topH + 32f,
+                irisX, irisY,
+                logoFlight,
+                19f, 13.5f,
+                logoIdleAng,
+                pText, 0xFF22C55E);
+
+        Font brand = AstucyFonts.brand();
+        float brandFade = Math.min(1f, Math.max(0f, (logoFlight - 0.22f) / 0.78f));
+        int brandCol = (((int) (0xFF * brandFade)) << 24) | (pText & 0xFFFFFF);
+        int brandShift = Math.round((1f - brandFade) * 6f);
+        Ui.spaced(g, brand, "ASTUCY", x0 + 29 + brandShift, y0 + (topH - brand.lineHeight) / 2 + 1, brandCol, 2);
+
+        int t1x = x0 + sideW + 14;
+        int t1w = 58;
+        int t2x = t1x + t1w + 4;
+        int t2w = 42;
+        int stx = t2x + t2w + 4;
+        int gwTab = 54;
+        int targetTabX = tab == 0 ? t1x : (tab == 1 ? t2x : stx);
+        int targetTabW = tab == 0 ? t1w : (tab == 1 ? t2w : gwTab);
+        int ix = Math.round(anim("tabX", targetTabX, 18f));
+        int iw = Math.round(anim("tabW", targetTabW, 18f));
+        Ui.rrect(g, ix + 6, y0 + topH - 2, Math.max(8, iw - 12), 2, 0xFF22C55E, 1);
+        drawTab(g, f, t1x, y0 + 5, t1w, topH - 10, "MODULES", tab == 0, lm);
+        drawTab(g, f, t2x, y0 + 5, t2w, topH - 10, "MODS", tab == 1, lm);
+        drawTab(g, f, stx, y0 + 5, gwTab, topH - 10, "SETTINGS", tab == 2, lm);
+        tabEndX = stx + gwTab + 8;
+
+        // conta logada (chip + dropdown) ao lado do X â€” calcula chipX antes do pill Dark/Light e searchBox()
+        AccountMenu.cursor(mx, my);
+        AccountMenu.drawChip(g, f, x0, y0, pw, topH);
+
+        // Dark / Light mode toggle pill ao lado do Account chip
+        int chipLeft = AccountMenu.chipX() > 0 ? AccountMenu.chipX() : (x0 + pw - 26 - 8 - AccountMenu.chipWidth(f));
+        int tBtnW = 54;
+        int tBtnX = chipLeft - tBtnW - 6;
+        int tBtnY = y0 + (topH - 18) / 2;
+        boolean thov = inside((int) mx, (int) my, tBtnX, tBtnY, tBtnW, 18);
+        Ui.rrect(g, tBtnX, tBtnY, tBtnW, 18, thov ? 0x2A22C55E : pChip, 6);
+        Ui.rframe(g, tBtnX, tBtnY, tBtnW, 18, thov ? 0x9922C55E : ((0x1A << 24) | pBorderRgb), 6);
+        Skin.icon(g, lm ? "fullbright" : "moon", tBtnX + 5, tBtnY + 4, 10, lm ? 0xFFF59E0B : 0xFF94A3B8);
+        g.drawString(AstucyFonts.ui8(), lm ? "LIGHT" : "DARK", tBtnX + 18, tBtnY + (18 - AstucyFonts.ui8().lineHeight) / 2 + 1, pText, false);
+
+        if (tab == 0 && option == null) {
+            int[] sb = searchBox();
+            if (sb[2] >= 52) {
+                boolean shv = inside((int) mx, (int) my, sb[0], sb[1], sb[2], sb[3]);
+                float sf = anim("sfocus", searchFocus ? 1f : (shv ? 0.35f : 0f), 14f);
+                int sBg = lm ? 0xFFFFFFFF : Ui.mix(0xFF05070B, 0xFF0A0E16, sf);
+                Ui.rrect(g, sb[0], sb[1], sb[2], sb[3], sBg, 6);
+                Ui.rframe(g, sb[0], sb[1], sb[2], sb[3], Ui.mix(((0x1C << 24) | pBorderRgb), 0xAA22C55E, sf), 6);
+                Ui.icon(g, "search", sb[0] + 6, sb[1] + 4, 10, searchFocus ? 0xFF22C55E : 0xFF64748B);
+                int tx = sb[0] + 19;
+                int tfy = sb[1] + (sb[3] - f.lineHeight) / 2 + 1;
+                if (searchText.isEmpty() && !searchFocus) {
+                    g.drawString(f, "Search...", tx, tfy, 0xFF64748B, false);
+                } else {
+                    g.drawString(f, searchText, tx, tfy, pText, false);
+                    int clrX = sb[0] + sb[2] - 13;
+                    boolean clrHov = inside((int) mx, (int) my, clrX - 3, sb[1], 16, sb[3]);
+                    g.drawString(AstucyFonts.ui8(), "x", clrX, sb[1] + (sb[3] - AstucyFonts.ui8().lineHeight) / 2 + 1,
+                            clrHov ? pText : 0xFF64748B, false);
+                }
+                if (searchFocus && (System.currentTimeMillis() / 500L) % 2L == 0L) {
+                    int cxr = tx + f.width(searchText.substring(0, Math.min(caret, searchText.length())));
+                    Ui.rect(g, cxr + 1, sb[1] + 4, 1, sb[3] - 8, 0xFF22C55E);
+                }
+            }
+        }
+
+        // fechar (hover animado + Ã­cone vetorial simÃ©trico)
+        int cbx = x0 + pw - 26;
+        int cby = y0 + (topH - 18) / 2;
+        float chv = anim("close", inside((int) mx, (int) my, cbx, cby, 18, 18) ? 1f : 0f, 16f);
+        Ui.rrect(g, cbx, cby, 18, 18, Ui.mix(pChip, 0x38E25661, chv), 6);
+        Ui.rframe(g, cbx, cby, 18, 18, Ui.mix(((0x18 << 24) | pBorderRgb), 0x88E25661, chv), 6);
+        Skin.icon(g, "close", cbx + 4, cby + 4, 10, Ui.mix(pMuted, 0xFFFFFFFF, chv));
+
+        // sidebar
+        drawSidebar(g, f, lm);
+
+        if (tab == 1) {
+            drawMods(g, f);
+        } else if (tab == 2) {
+            drawSettingsTab(g, f, lm);
+        } else if (option != null) {
+            if ("crosshair".equals(option.id)) {
+                drawCrosshairOptions(g, f, lm);
+            } else {
+                drawOptions(g, f);
+                if (colorEdit >= 0) {
+                    drawPalette(g, f);
+                }
+            }
+        } else {
+            drawGrid(g, f, lm);
+        }
+
+            // dropdown de conta por cima de tudo
+            AccountMenu.drawPanel(g, f);
+        } finally {
+            g.pose().popPose();
+        }
+    }
+
+    private void drawTab(GuiGraphics g, Font f, int x, int y, int w, int h, String label, boolean active, boolean lm) {
+        boolean hov = inside((int) mx, (int) my, x, y, w, h);
+        int borderRgb = lm ? 0x0F172A : 0xFFFFFF;
+        if (hov && !active) {
+            Ui.rrect(g, x, y, w, h, (0x14 << 24) | borderRgb, 5);
+        }
+        int onCol = lm ? 0xFF0F172A : 0xFFFFFFFF;
+        int offCol = lm ? 0xFF475569 : 0xFF8A94A6;
+        Ui.ctext(g, f, label, x + w / 2, y + (h - f.lineHeight) / 2 + 1, active || hov ? onCol : offCol);
+    }
+
+    /** Valor animado por chave (exponencial, independente de FPS). */
+    private float anim(String key, float target, float speed) {
+        if (!AstucyConfig.prefBool("anim", true)) {
+            anims.put(key, target);
+            return target;
+        }
+        float cur = anims.getOrDefault(key, target);
+        cur += (target - cur) * (1f - (float) Math.exp(-speed * dt));
+        if (Math.abs(target - cur) < 0.002f) {
+            cur = target;
+        }
+        anims.put(key, cur);
+        return cur;
+    }
+
+    private void drawSidebar(GuiGraphics g, Font f, boolean lm) {
+        int sy = y0 + topH + 22;
+        g.drawString(AstucyFonts.ui8(), "PROFILES", x0 + 12, sy - f.lineHeight - 4, 0xFF64748B, false);
+        int textOn = lm ? 0xFF0F172A : 0xFFFFFFFF;
+        int textOff = lm ? 0xFF475569 : 0xFF8A94A6;
+        int borderRgb = lm ? 0x0F172A : 0xFFFFFF;
+
+        // seleÃ§Ã£o de perfil com superfÃ­cie tonal limpa e indicador esmeralda Ã  esquerda
+        for (int i = 0; i < PROFILES.length; i++) {
+            int ry = sy + i * 22;
+            boolean current = profile == i;
+            boolean hov = inside((int) mx, (int) my, x0 + 10, ry, sideW - 18, 18);
+            float a = anim("prof:" + i, current ? 1f : (hov ? 0.45f : 0f), 14f);
+            if (a > 0.01f) {
+                int pillCol = current
+                        ? (lm ? 0xFFFFFFFF : Ui.mix(0xFF0E131B, 0xFF151C27, a))
+                        : (((int) (0x16 * a) << 24) | borderRgb);
+                Ui.rrect(g, x0 + 10, ry, sideW - 18, 18, pillCol, 5);
+                if (current) {
+                    Ui.rrect(g, x0 + 12, ry + 4, 2, 10, 0xFF22C55E, 1);
+                }
+            }
+            boolean editing = profEdit && profEditIdx == i;
+            String shown = editing ? profBuf : AstucyConfig.profileName(i);
+            g.drawString(f, shown, x0 + 18, ry + (18 - f.lineHeight) / 2 + 1,
+                    current || editing ? textOn : Ui.mix(textOff, textOn, a * 0.6f), false);
+            if (editing && (System.currentTimeMillis() / 500L) % 2L == 0L) {
+                Ui.rect(g, x0 + 18 + f.width(shown), ry + 4, 1, f.lineHeight, 0xFF22C55E);
+            }
+        }
+
+        int by = sy + PROFILES.length * 22 + 8;
+        int bw = sideW - 18;
+        boolean sh = inside((int) mx, (int) my, x0 + 10, by, bw, 20);
+        boolean hh = inside((int) mx, (int) my, x0 + 10, by + 24, bw, 20);
+        float sa = anim("sb1", sh ? 1f : 0f, 16f);
+        boolean justSaved = System.currentTimeMillis() - savedStamp < 1200L;
+        int saveBg = justSaved ? 0x2E22C55E : Ui.mix(lm ? 0xFFF1F5F9 : 0xFF121721, lm ? 0xFFFFFFFF : 0xFF1A2230, sa);
+        Ui.rrect(g, x0 + 10, by, bw, 20, saveBg, 6);
+        Ui.rframe(g, x0 + 10, by, bw, 20, justSaved ? 0x8822C55E : ((0x16 << 24) | borderRgb), 6);
+        Ui.ctext(g, f, justSaved ? "SAVED" : "SAVE PROFILE", x0 + 10 + bw / 2, by + (20 - f.lineHeight) / 2 + 1,
+                justSaved ? 0xFF22C55E : Ui.mix(textOff, textOn, 0.5f + sa * 0.5f));
+
+        // BotÃ£o primÃ¡rio sÃ³lido esmeralda para EDIT HUD
+        float hb = anim("sb2", hh ? 1f : 0f, 16f);
+        int hudTop = Ui.mix(0xFF22C55E, 0xFF34D399, hb);
+        int hudBot = Ui.mix(0xFF16A34A, 0xFF22C55E, hb);
+        if (!Skin.boxGrad(g, x0 + 10, by + 24, bw, 20, hudTop, hudBot, 6)) {
+            Ui.rrect(g, x0 + 10, by + 24, bw, 20, hudTop, 6);
+        }
+        Ui.ctext(g, f, "EDIT HUD", x0 + 10 + bw / 2, by + 24 + (20 - f.lineHeight) / 2 + 1, 0xFF04140A);
+
+        // Card de telemetria ao vivo no rodapÃ© da sidebar
+        Font sf = AstucyFonts.ui8();
+        int ty = y0 + ph - 42;
+        if (ty > by + 50) {
+            Ui.rrect(g, x0 + 10, ty, sideW - 18, 32, lm ? 0xFFF8FAFC : 0xFF070A0F, 6);
+            Ui.rframe(g, x0 + 10, ty, sideW - 18, 32, ((lm ? 0x20 : 0x12) << 24) | borderRgb, 6);
+            int activeMods = 0;
+            for (Module m : Modules.all()) {
+                if (m.enabled) {
+                    activeMods++;
+                }
+            }
+            Skin.glow(g, x0 + 18, ty + 10, 9, 0x2222C55E);
+            float miniAng = (float) ((System.currentTimeMillis() % 6000L) / 6000.0 * Math.PI * 2.0);
+            Skin.logo(g, x0 + 18.5f, ty + 9.5f, 8.5f, miniAng, 0xFF22C55E);
+            g.drawString(sf, activeMods + " active", x0 + 26, ty + 5, lm ? 0xFF0F172A : 0xFFE2E8F0, false);
+            int fpsNow = Minecraft.getInstance().getFps();
+            g.drawString(sf, fpsNow + " FPS  Â·  v0.1", x0 + 16, ty + 18, 0xFF64748B, false);
+        } else {
+            g.drawString(sf, "astucy v0.1", x0 + 12, y0 + ph - f.lineHeight - 8, 0xFF64748B, false);
+        }
+    }
+
+    private void drawGrid(GuiGraphics g, Font f, boolean lm) {
+        int borderRgb = lm ? 0x0F172A : 0xFFFFFF;
+        int offTxt = lm ? 0xFF475569 : 0xFF8A94A6;
+        int onTxt = lm ? 0xFF0F172A : 0xFFFFFFFF;
+        // indicador da pill ativa â€” pÃ­lula sÃ³lida esmeralda que desliza sem contorno borrado
+        int activeIdx = -1;
+        for (int i = 0; i < pillCats.size(); i++) {
+            if (pillCats.get(i) == filter) {
+                activeIdx = i;
+                break;
+            }
+        }
+        int[] ar = activeIdx >= 0 ? pillRects.get(activeIdx) : null;
+        float ix = anim("pillX", ar == null ? cx : ar[0], 20f);
+        float iw = anim("pillW", ar == null ? 0 : ar[2], 20f);
+        for (int i = 0; i < pillRects.size(); i++) {
+            int[] r = pillRects.get(i);
+            boolean active = filter == pillCats.get(i);
+            boolean hov = inside((int) mx, (int) my, r[0], r[1], r[2], r[3]);
+            float h = anim("ph:" + i, hov ? 1f : 0f, 16f);
+            if (!active && h > 0.02f) {
+                Ui.rrect(g, r[0], r[1], r[2], r[3], ((int) (0x16 * h) << 24) | borderRgb, 5);
+            }
+        }
+        if (ar != null && iw > 2f) {
+            int rx = Math.round(ix);
+            int rw = Math.round(iw);
+            if (!Skin.boxGrad(g, rx, ar[1], rw, ar[3], 0xFF22C55E, 0xFF16A34A, 5)) {
+                Ui.rrect(g, rx, ar[1], rw, ar[3], 0xFF22C55E, 5);
+            }
+        }
+        for (int i = 0; i < pillRects.size(); i++) {
+            int[] r = pillRects.get(i);
+            Object key = pillCats.get(i);
+            String label = pillLabelText(key);
+            boolean active = filter == key;
+            boolean hov = inside((int) mx, (int) my, r[0], r[1], r[2], r[3]);
+            int ly = r[1] + (r[3] - f.lineHeight) / 2 + 1;
+            if (active) {
+                Ui.ctext(g, f, label, Math.round(ix + iw / 2), ly, 0xFF04140A);
+            } else {
+                float h = anim("ph:" + i, hov ? 1f : 0f, 16f);
+                Ui.ctext(g, f, label, r[0] + r[2] / 2, ly,
+                        Ui.mix(offTxt, onTxt, h));
+            }
+        }
+
+        List<Module> list = filtered();
+        if (list.isEmpty()) {
+            Ui.icon(g, "search", cx + cw / 2 - 16, cy + 46, 32, (0x44 << 24) | borderRgb);
+            Ui.ctext(g, f, "Nothing here", cx + cw / 2, cy + 88, offTxt);
+            Ui.ctext(g, f, "try another filter or clear the search", cx + cw / 2, cy + 102, (0x55 << 24) | borderRgb);
+            return;
+        }
+
+        // cards (recortados pra nÃ£o vazarem do painel)
+        int gridBottom = cy + ch;
+        g.enableScissor(cx - 2, gridY - 2, cx + cw, gridBottom);
+        float wmAng = (float) ((System.currentTimeMillis() % 28000L) / 28000.0 * Math.PI * 2.0);
+        Skin.logo(g, cx + (cw - 8) * 0.5f, gridY + (gridBottom - gridY) * 0.5f, 148f, wmAng, 0x0A22C55E);
+        for (int i = 0; i < list.size(); i++) {
+            int gx = cx + (i % cols) * (cardW + 8);
+            int gy = gridY + (i / cols) * (cardH + 7) - gridScrollPx();
+            if (gy + cardH < gridY - 2 || gy > gridBottom) {
+                continue;
+            }
+            drawCard(g, f, list.get(i), gx, gy, i, lm);
+        }
+        g.disableScissor();
+
+        // fades suaves caso a lista esteja rolada
+        int fadeRgb = lm ? 0xF8FAFC : 0x070A0F;
+        if (scrollY > 1f) {
+            for (int i = 0; i < 6; i++) {
+                Ui.rect(g, cx, gridY + i, cw - 8, 1, (((int) (0x14 * (6 - i))) << 24) | fadeRgb);
+            }
+        }
+        int max = maxScroll();
+        if (max > 0 && scrollY < max - 2f) {
+            for (int i = 0; i < 8; i++) {
+                Ui.rect(g, cx, gridBottom - 8 + i, cw - 8, 1, (((int) (0x14 * (i + 1))) << 24) | fadeRgb);
+            }
+        }
+
+        // scrollbar: trilho fino na calha exclusiva Ã  direita dos cards
+        if (max > 0) {
+            boolean hover = drag == 0 && onGridBar((int) mx, (int) my);
+            boolean scrolling = System.currentTimeMillis() - lastScroll < 900 || scrollTarget != scrollY;
+            float hot = anim("sbar", (hover || scrolling || drag == 4) ? 1f : 0f, 12f);
+            Ui.scrollbar(g, cx + cw - 4, gridTrackY(), gridTrackH(),
+                    gridThumbY(), gridThumbH(), hot, drag == 4 ? 1f : 0f);
+        }
+    }
+
+    private void drawCard(GuiGraphics g, Font f, Module m, int gx, int gy, int idx, boolean lm) {
+        boolean hov = inside((int) mx, (int) my, gx, gy, cardW, cardH);
+        float h = anim("c:" + m.id, hov ? 1f : 0f, 16f);
+        float on = anim("e:" + m.id, m.enabled ? 1f : 0f, 15f);
+        Long pr = press.get(m.id);
+        float flash = pr == null ? 0f : Math.max(0f, 1f - (System.currentTimeMillis() - pr) / 280f);
+        int borderRgb = lm ? 0x0F172A : 0xFFFFFF;
+
+        // cascata suave ao abrir o menu ou trocar de categoria
+        int row = idx / cols;
+        float enterRaw = (System.currentTimeMillis() - catStamp - row * 18L - (idx % cols) * 9L) / 210f;
+        float enter = Math.max(0f, Math.min(1f, enterRaw));
+        float enterEase = 1f - (1f - enter) * (1f - enter) * (1f - enter);
+        int slideY = Math.round((1f - enterEase) * 5f);
+
+        int ly = gy + slideY - Math.round(1.0f * h);
+
+        int topOff = lm ? Ui.mix(0xFFF1F5F9, 0xFFFFFFFF, h) : Ui.mix(0xFF0E121A, 0xFF151B27, h);
+        int botOff = lm ? Ui.mix(0xFFE2E8F0, 0xFFF8FAFC, h) : Ui.mix(0xFF0B0E15, 0xFF101620, h);
+        int topOn = lm ? Ui.mix(0xFFECFDF5, 0xFFDCFCE7, h) : Ui.mix(0xFF0E221A, 0xFF132C22, h);
+        int botOn = lm ? Ui.mix(0xFFD1FAE5, 0xFFBBF7D0, h) : Ui.mix(0xFF0A1812, 0xFF0E2119, h);
+        int cTop = Ui.mix(topOff, topOn, on);
+        int cBot = Ui.mix(botOff, botOn, on);
+        if (lm || !Skin.boxGrad(g, gx, ly, cardW, cardH, cTop, cBot, 7)) {
+            Ui.rrect(g, gx, ly, cardW, cardH, cTop, 7);
+        }
+        if (on > 0.05f || h > 0.05f || lm) {
+            int brdA = on > 0.5f ? Math.round((lm ? 120f : 58f) + 48f * h) : Math.round((lm ? 22f : 0f) + 26f * h);
+            int brdCol = (brdA << 24) | (on > 0.5f ? 0x22C55E : borderRgb);
+            Ui.rframe(g, gx, ly, cardW, cardH, brdCol, 7);
+        }
+
+        // barra lateral esmeralda animada quando ativo
+        int badgeSz = 22;
+        int badgeX = gx + 8;
+        int badgeY = ly + (cardH - badgeSz) / 2;
+        if (on > 0.02f) {
+            int barH = Math.max(4, Math.round((cardH - 14) * on));
+            int barY = ly + (cardH - barH) / 2;
+            Ui.rrect(g, gx + 2, barY, 2, barH, ((int) (0xFF * on) << 24) | 0x22C55E, 1);
+        }
+
+        // poÃ§o recuado para o Ã­cone do mÃ³dulo
+        if (on > 0.04f) {
+            Skin.glow(g, badgeX + badgeSz / 2, badgeY + badgeSz / 2, 16, (((int) (0x20 * on)) << 24) | 0x22C55E);
+        }
+        int wellOff = lm ? Ui.mix(0xFFE2E8F0, 0xFFCBD5E1, h) : Ui.mix(0xFF07090E, 0xFF0B0E16, h);
+        Ui.rrect(g, badgeX, badgeY, badgeSz, badgeSz,
+                Ui.mix(wellOff, 0x2622C55E, on), 5);
+        int icoOff = lm ? 0xFF475569 : Ui.mix(0xFF94A3B8, 0xFFE2E8F0, h);
+        Ui.icon(g, m.id, badgeX + 5, badgeY + 5, 12,
+                Ui.mix(icoOff, lm ? 0xFF16A34A : 0xFF4ADE80, on));
+
+        // tipografia limpa em 2 linhas
+        int textX = badgeX + badgeSz + 8;
+        int titleY = ly + 7;
+        int titleCol = lm ? 0xFF0F172A : Ui.mix(0xFFF1F5F9, 0xFFFFFFFF, Math.max(on, h));
+        g.drawString(f, m.name, textX, titleY, titleCol, false);
+
+        Font sf = AstucyFonts.ui8();
+        if (m.isNew && on < 0.3f) {
+            int bx = textX + f.width(m.name) + 5;
+            int bw = sf.width("NEW") + 6;
+            if (bx + bw < gx + cardW - 58) {
+                Ui.rrect(g, bx, titleY + 1, bw, sf.lineHeight + 2, 0x2222C55E, 3);
+                g.drawString(sf, "NEW", bx + 3, titleY + 2, lm ? 0xFF16A34A : 0xFF4ADE80, false);
+            }
+        }
+
+        String desc = m.description == null ? "" : m.description;
+        int subOff = lm ? 0xFF64748B : Ui.mix(0xFF64748B, 0xFF94A3B8, h);
+        int subColor = Ui.mix(subOff, lm ? 0xFF16A34A : 0xFF6EE7B7, on * 0.85f);
+        g.drawString(sf, desc, textX, ly + 21, subColor, false);
+
+        // botÃ£o de opÃ§Ãµes
+        int optX = gx + cardW - 56;
+        int optY = ly + (cardH - 18) / 2;
+        boolean gearHov = inside((int) mx, (int) my, optX - 2, ly + 4, 22, cardH - 8);
+        float gh2 = anim("g:" + m.id, gearHov ? 1f : 0f, 16f);
+        if (gh2 > 0.02f) {
+            Ui.rrect(g, optX, optY, 18, 18, ((int) (0x20 * gh2) << 24) | borderRgb, 5);
+        }
+        Ui.icon(g, "options", optX + 4, ly + (cardH - 10) / 2, 10,
+                Ui.mix(0xFF64748B, lm ? 0xFF0F172A : 0xFFFFFFFF, Math.max(h * 0.45f, gh2)));
+
+        // switch de alto contraste
+        int sw = 26;
+        int sh = 14;
+        int sx = gx + cardW - sw - 8;
+        int sy = ly + (cardH - sh) / 2;
+        int swOffTop = lm ? 0xFFCBD5E1 : 0xFF05070B;
+        int swOffBot = lm ? 0xFF94A3B8 : 0xFF040609;
+        if (!Skin.boxGrad(g, sx, sy, sw, sh,
+                Ui.mix(swOffTop, 0xFF22C55E, on),
+                Ui.mix(swOffBot, 0xFF16A34A, on), sh / 2)) {
+            Ui.rrect(g, sx, sy, sw, sh, Ui.mix(swOffTop, 0xFF22C55E, on), sh / 2);
+        }
+        if (on < 0.85f) {
+            Ui.rframe(g, sx, sy, sw, sh, Ui.mix(((0x24 << 24) | borderRgb), 0x00FFFFFF, on), sh / 2);
+        }
+        int kr = sh - 4;
+        int kx = sx + 2 + Math.round((sw - 4 - kr) * on);
+        int knobCol = Ui.mix(lm ? 0xFFFFFFFF : Ui.mix(0xFF64748B, 0xFF94A3B8, h), 0xFFFFFFFF, on);
+        Skin.disc(g, kx, sy + 2, kr, knobCol);
+
+        // pulso sutil ao clicar no card
+        if (flash > 0.01f) {
+            int rad = Math.round(16 + (1f - flash) * (cardW * 0.40f));
+            Skin.glow(g, gx + cardW / 2, ly + cardH / 2, rad, (((int) (0x22 * flash)) << 24) | 0x22C55E);
+        }
+    }
+
+    private void drawOptions(GuiGraphics g, Font f) {
+        Module m = option;
+        Font b = AstucyFonts.bold();
+        boolean behavior = behaviorMode();
+
+        // animaÃ§Ã£o de entrada (desliza 8px ao abrir)
+        float oi = anim("optIn", 1f, 16f);
+        optShift = Math.round((1f - oi) * 8f);
+        int hy = cy - 2 + optShift;
+
+        // cabeÃ§alho + preview ao vivo
+        Ui.icon(g, m.id, cx + 2, hy, 16, Ui.TEXT);
+        g.drawString(AstucyFonts.midBold(), m.name, cx + 26, hy, Ui.TEXT, false);
+        g.drawString(f, m.description, cx + 26, hy + f.lineHeight + 2, Ui.DIM, false);
+        // sÃ³ mÃ³dulo de HUD tem chip; blur/zoom/viewmodel nÃ£o desenham texto na tela
+        if (m.hud) {
+            String label = Modules.chipText(m, minecraft);
+            int[] psz = Modules.chipSize(f, m, label == null ? m.name : label);
+            Modules.drawHud(g, f, m, cx + cw - psz[0] - 14, hy);
+        }
+        Ui.hline(g, cx, cy + f.lineHeight * 2 + 8 + optShift, cw, 0x00FFFFFF);
+
+        int rows = rowCount();
+        int hovered = -1;
+        // as linhas rolam dentro da Ã¡rea visÃ­vel (nada vaza pro rodapÃ©)
+        g.enableScissor(cx - 10, optTrackY(), cx + cw + 10, optTrackY() + optTrackH());
+        for (int i = 0; i < rows; i++) {
+            int ry = optRowY(i);
+            int rh = optRowH();
+            boolean focus = optSel == i;
+            boolean rowHover = inside((int) mx, (int) my, cx - 4, ry - 4, cw + 8, rh);
+            if (rowHover) {
+                hovered = i;
+            }
+            if (focus) {
+                Ui.rrect(g, cx - 6, ry - 4, cw + 12, rh, 0x14FFFFFF);
+            } else if (rowHover) {
+                Ui.rrect(g, cx - 6, ry - 4, cw + 12, rh, 0x12FFFFFF);
+                Ui.rect(g, cx - 6, ry - 1, 2, rh - 6, 0xFF6FE3A2);
+            }
+            String rowLabel = rowLabel(i);
+            g.drawString(f, rowLabel, cx + 6, ry + 1, focus || rowHover ? Ui.TEXT : Ui.DIM, false);
+            int sx = sliderX();
+            Row mr = modRow(i);
+            if (mr != null) {
+                if (mr.toggle()) {
+                    boolean on = rowBool(mr);
+                    Ui.toggle(g, sx, ry - 3, 36, 16, on, toggleAnim("b:" + mr.prop(), on));
+                } else {
+                    double v = rowNum(mr);
+                    float frac = (float) ((v - mr.min()) / (mr.max() - mr.min()));
+                    Ui.sliderV3(g, sx, ry + 1, sliderW(), frac,
+                            drag == 100 + i ? 1f : (rowHover ? 0.45f : 0f));
+                    g.drawString(f, rowText(mr, v), sx + sliderW() + 10, ry + 1, Ui.TEXT, false);
+                }
+                continue;
+            }
+            switch (i) {
+                case 0 -> {
+                    Ui.sliderV3(g, sx, ry + 1, sliderW(), (float) ((m.scale - 0.6) / 1.4),
+                            drag == 1 ? 1f : (rowHover ? 0.45f : 0f));
+                    g.drawString(f, String.format("%.2fx", m.scale), sx + sliderW() + 10, ry + 1, Ui.TEXT, false);
+                }
+                case 1 -> Ui.toggle(g, sx, ry - 3, 36, 16, m.bg, toggleAnim("bg", m.bg));
+                case 2 -> {
+                    int alpha = (m.bgColor >>> 24) & 0xFF;
+                    Ui.sliderV3(g, sx, ry + 1, sliderW(), alpha / 255f,
+                            drag == 2 ? 1f : (rowHover ? 0.45f : 0f));
+                    g.drawString(f, (alpha * 100 / 255) + "%", sx + sliderW() + 10, ry + 1, Ui.TEXT, false);
+                }
+                case 3 -> {
+                    for (int s = 0; s < Module.SWATCHES.length; s++) {
+                        Ui.swatch(g, sx + s * swPitch(), ry - 2 + (13 - swSize()) / 2, swSize(), Module.SWATCHES[s],
+                                (m.bgColor & 0xFFFFFF) == (Module.SWATCHES[s] & 0xFFFFFF));
+                    }
+                    Ui.rrect(g, sx + swPitch() * Module.SWATCHES.length + 2, ry - 2, 24, 14, 0x1AFFFFFF, 4);
+                    g.drawString(f, "RGB", sx + swPitch() * Module.SWATCHES.length + 6, ry + 1, 0x9EFFFFFF, false);
+                }
+                case 4 -> {
+                    for (int s = 0; s < Module.SWATCHES.length; s++) {
+                        Ui.swatch(g, sx + s * swPitch(), ry - 2 + (13 - swSize()) / 2, swSize(), Module.SWATCHES[s],
+                                (m.fgColor & 0xFFFFFF) == (Module.SWATCHES[s] & 0xFFFFFF));
+                    }
+                    Ui.rrect(g, sx + swPitch() * Module.SWATCHES.length + 2, ry - 2, 24, 14, 0x1AFFFFFF, 4);
+                    g.drawString(f, "RGB", sx + swPitch() * Module.SWATCHES.length + 6, ry + 1, 0x9EFFFFFF, false);
+                }
+                case 5 -> Ui.toggle(g, sx, ry - 3, 36, 16, m.shadow, toggleAnim("shadow", m.shadow));
+                case 6 -> Ui.toggle(g, sx, ry - 3, 36, 16, m.prefix, toggleAnim("prefix", m.prefix));
+                case 7 -> Ui.blueBtn(g, f, sx, ry - 3, 136, 17, "EDIT LAYOUT");
+                case 8 -> {
+                    boolean cleanFont = option.boolProp("font", true);
+                    Ui.toggle(g, sx, ry - 3, 36, 16, cleanFont, toggleAnim("font", cleanFont));
+                }
+                case 9 -> {
+                    boolean editing = labelEdit;
+                    int fw = sliderW() + 42;
+                    Ui.rrect(g, sx, ry - 3, fw, 17, editing ? 0x2EFFFFFF : 0x1AFFFFFF);
+                    String cur = option.customLabel == null ? "" : option.customLabel;
+                    String txt = editing ? labelBuf : (cur.isEmpty() ? "â€”" : cur);
+                    int col = editing ? Ui.WHITE : (cur.isEmpty() ? Ui.DIM : Ui.TEXT);
+                    g.drawString(f, txt, sx + 6, ry + 1, col, false);
+                    if (editing && (System.currentTimeMillis() / 500L) % 2L == 0L) {
+                        Ui.rect(g, sx + 7 + f.width(labelBuf), ry - 1, 1, 11, 0xFFFFFFFF);
+                    }
+                }
+                case 10 -> {
+                    Ui.sliderV3(g, sx, ry + 1, sliderW(), (float) ((m.scaleY - 0.6) / 2.4),
+                            drag == 6 ? 1f : (rowHover ? 0.45f : 0f));
+                    g.drawString(f, String.format("%.2fx", m.scaleY), sx + sliderW() + 10, ry + 1, Ui.TEXT, false);
+                }
+                default -> { }
+            }
+        }
+
+        g.disableScissor();
+
+        // scrollbar das opÃ§Ãµes (trilho + pÃ­lula, arrastÃ¡vel)
+        int omax = optMaxScroll();
+        if (omax > 0) {
+            boolean hover = drag == 0 && onOptBar((int) mx, (int) my);
+            float ohot = anim("osbar", (hover || drag == 5) ? 1f : 0f, 12f);
+            Ui.scrollbar(g, cx + cw - 4, optTrackY(), optTrackH(),
+                    optThumbY(), optThumbH(), ohot, drag == 5 ? 1f : 0f);
+        }
+
+        int by = cy + ch - 26;
+        boolean h1 = inside((int) mx, (int) my, cx, by, 136, 18);
+        boolean h2 = inside((int) mx, (int) my, cx + 146, by, 136, 18);
+        Ui.rrect(g, cx, by, 136, 18, Ui.mix(0x1EFFFFFF, 0x34FFFFFF, anim("ob1", h1 ? 1f : 0f, 16f)));
+        Ui.ctext(g, f, "RESET STYLE", cx + 68, by + 5, Ui.TEXT);
+        Ui.rrect(g, cx + 146, by, 136, 18, Ui.mix(0x1EFFFFFF, 0x34FFFFFF, anim("ob2", h2 ? 1f : 0f, 16f)));
+        Ui.ctext(g, f, "BACK", cx + 146 + 68, by + 5, Ui.TEXT);
+
+        // tooltip da linha sob o cursor
+        if (hovered >= 0) {
+            String tip = rowTip(hovered);
+            if (!tip.isEmpty()) {
+                Ui.tooltip(g, f, clamp((int) mx + 12, cx, cx + cw - 180), (int) my + 14, tip);
+            }
+        }
+    }
+
+    /** Zoom, viewmodel e afins mostram configuraÃ§Ãµes de comportamento (nÃ£o de estilo). */
+    private boolean behaviorMode() {
+        return rows() != null;
+    }
+
+    private Row[] rows() {
+        return rowsFor(option);
+    }
+
+    private static Row[] rowsFor(Module m) {
+        if (m == null) {
+            return null;
+        }
+        return switch (m.id) {
+            case "zoom" -> ZOOM_ROWS;
+            case "viewmodel" -> VIEWMODEL_ROWS;
+            case "blur" -> BLUR_ROWS;
+            case "speedfx" -> SPEEDFX_ROWS;
+            case "ambience" -> AMBIENCE_ROWS;
+            case "menublur" -> MENUBLUR_ROWS;
+            case "crosshair" -> CROSSHAIR_ROWS;
+            case "chat" -> CHAT_ROWS;
+            case "fps" -> FPS_ROWS;
+            case "ping" -> PING_ROWS;
+            case "memory" -> MEMORY_ROWS;
+            case "cps" -> CPS_ROWS;
+            case "keystrokes" -> KEYSTROKE_ROWS;
+            case "coords" -> COORD_ROWS;
+            case "armor" -> ARMOR_ROWS;
+            case "efeitos" -> EFFECT_ROWS;
+            default -> null;
+        };
+    }
+
+    /** MÃ³dulos de HUD mostram as linhas de estilo + as linhas prÃ³prias do mÃ³dulo. */
+    private boolean hasStyle() {
+        return option != null && option.hud;
+    }
+
+    private int styleRows() {
+        return hasStyle() ? OPT_ROWS.length : 0;
+    }
+
+    private int rowCount() {
+        int s = styleRows();
+        Row[] r = rows();
+        int m = r == null ? 0 : r.length;
+        if (s > 0) {
+            return s + m;
+        }
+        return m > 0 ? m : OPT_ROWS.length;
+    }
+
+    private Row modRow(int i) {
+        Row[] r = rows();
+        if (r == null) {
+            return null;
+        }
+        int k = i - styleRows();
+        return k >= 0 && k < r.length ? r[k] : null;
+    }
+
+    private String rowLabel(int i) {
+        int s = styleRows();
+        if (s > 0 && i < s) {
+            if (i == 6 && option != null) {
+                if ("armor".equals(option.id)) {
+                    return "Percentage (%)";
+                }
+                if ("healthtag".equals(option.id)) {
+                    return "Show hearts";
+                }
+            }
+            return OPT_ROWS[i];
+        }
+        Row r = modRow(i);
+        return r == null ? "" : r.label();
+    }
+
+    private String rowTip(int i) {
+        int s = styleRows();
+        if (s > 0 && i < s) {
+            return OPT_TOOLTIPS[i];
+        }
+        Row r = modRow(i);
+        return r == null ? "" : r.tip();
+    }
+
+    private boolean rowBool(Row r) {
+        return option.boolProp(r.prop(), r.def() != 0);
+    }
+
+    private double rowNum(Row r) {
+        return option.numProp(r.prop(), r.def());
+    }
+
+    private static String rowText(Row r, double v) {
+        if (r.prop().equals("level")) {
+            return Math.round(v * 100) + "%";
+        }
+        if (r.prop().equals("vmscale")) {
+            return String.format(java.util.Locale.ROOT, "%.2fx", v);
+        }
+        if (r.prop().equals("strength") || r.prop().equals("intensity")) {
+            return String.format(java.util.Locale.ROOT, "%.2fx", v);
+        }
+        if (r.prop().equals("lowpct")) {
+            return Math.round(v) + "%";
+        }
+        if (r.prop().equals("box") || r.prop().equals("size") || r.prop().equals("gap")) {
+            return Math.round(v) + " px";
+        }
+        if (r.prop().equals("decimals")) {
+            return String.valueOf(Math.round(v));
+        }
+        return String.format(java.util.Locale.ROOT, "%+.2f", v);
+    }
+
+    private static double clampNum(double v, double min, double max) {
+        return Math.max(min, Math.min(max, v));
+    }
+
+    private float toggleAnim(String key, boolean on) {
+        return anim("t:" + key, on ? 1f : 0f, 18f);
+    }
+
+    private void drawMods(GuiGraphics g, Font f) {
+        List<ModContainer> mods = new ArrayList<>(FabricLoader.getInstance().getAllMods());
+        mods.sort(Comparator.comparing(mc -> mc.getMetadata().getId()));
+        int rowH = f.lineHeight + 12;
+        g.enableScissor(cx, cy, cx + cw, cy + ch);
+        int row = 0;
+        int sy = gridScrollPx();
+        int start = Math.max(0, sy / rowH);
+        for (int i = start; i < mods.size(); i++) {
+            int ry = cy + row * rowH - sy % rowH;
+            if (ry > cy + ch) {
+                break;
+            }
+            ModContainer mc = mods.get(i);
+            boolean hov = inside((int) mx, (int) my, cx, ry, cw, rowH - 4);
+            float hh = anim("mod:" + mc.getMetadata().getId(), hov ? 1f : 0f, 16f);
+            Ui.rrect(g, cx, ry, cw, rowH - 4, Ui.mix(0x0BFFFFFF, 0x1FFFFFFF, hh));
+            g.drawString(f, mc.getMetadata().getName(), cx + 10, ry + 5, Ui.mix(Ui.NAME, Ui.TEXT, hh), false);
+            String ver = mc.getMetadata().getVersion().getFriendlyString();
+            g.drawString(f, ver, cx + cw - f.width(ver) - 10, ry + 5, Ui.DIM, false);
+            row++;
+        }
+        g.disableScissor();
+        g.drawString(f, mods.size() + " mods loaded by Fabric", cx + 8, cy + ch - 14, Ui.DIM, false);
+    }
+
+    private void drawSettingsTab(GuiGraphics g, Font f, boolean lm) {
+        int textOn = lm ? 0xFF0F172A : 0xFFFFFFFF;
+        int textMuted = lm ? 0xFF475569 : 0xFF8A94A6;
+        int borderRgb = lm ? 0x0F172A : 0xFFFFFF;
+        g.drawString(AstucyFonts.bold(), "CLIENT & ENGINE SETTINGS", cx + 6, cy + 2, 0xFF22C55E, false);
+        String[][] rows = {
+            {"Edit HUD Layout", "Move, scale and restyle every chip", "EDIT HUD"},
+            {"Minecraft Video & Options", "FOV, Render Distance, FPS Limit, Shaders", "OPEN"},
+            {"Reset HUD Positions", "Restore factory layout for active profile", "RESET"},
+            {"Restore Default PvP Preset", "Enable the 4 default Astucy modules", "APPLY"}
+        };
+        for (int i = 0; i < rows.length; i++) {
+            int ry = cy + 22 + i * 38;
+            boolean hov = inside((int) mx, (int) my, cx, ry, cw, 32);
+            if (hov) {
+                Ui.rrect(g, cx, ry, cw, 32, (0x16 << 24) | borderRgb, 7);
+                Ui.rrect(g, cx + 2, ry + 5, 2, 22, 0xFF38C975, 1);
+            }
+            g.drawString(f, rows[i][0], cx + 12, ry + 4, textOn, false);
+            g.drawString(AstucyFonts.ui8(), rows[i][1], cx + 12, ry + 18, textMuted, false);
+            int bx = cx + cw - 110;
+            Ui.rrect(g, bx, ry + 5, 102, 22, hov ? 0x3A22C55E : ((0x16 << 24) | borderRgb), 6);
+            Ui.rframe(g, bx, ry + 5, 102, 22, hov ? 0x9922C55E : ((0x22 << 24) | borderRgb), 6);
+            Ui.ctext(g, f, rows[i][2], bx + 51, ry + (22 - f.lineHeight) / 2 + 6, textOn);
+        }
+    }
+
+    private boolean clickSettingsTab(int px, int py) {
+        for (int i = 0; i < 4; i++) {
+            int ry = cy + 22 + i * 38;
+            if (inside(px, py, cx, ry, cw, 32)) {
+                switch (i) {
+                    case 0 -> {
+                        AstucyConfig.save();
+                        minecraft.setScreen(new HudEditorScreen());
+                    }
+                    case 1 -> {
+                        AstucyConfig.save();
+                        minecraft.setScreen(new ClientSettingsScreen(this));
+                    }
+                    case 2 -> Modules.resetPositions();
+                    default -> Modules.resetPreset();
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private int crosshairCell() {
+        return Math.max(8, Math.min(11, (ch - 70) / 17));
+    }
+
+    private void drawCrosshairOptions(GuiGraphics g, Font f, boolean lm) {
+        Module m = option;
+        int textOn = lm ? 0xFF0F172A : 0xFFFFFFFF;
+        int textMuted = lm ? 0xFF475569 : 0xFF8A94A6;
+        int borderRgb = lm ? 0x0F172A : 0xFFFFFF;
+        Ui.icon(g, m.id, cx + 2, cy, 16, 0xFF4ADE80);
+        g.drawString(AstucyFonts.midBold(), m.name, cx + 24, cy, textOn, false);
+        g.drawString(AstucyFonts.ui8(), m.description, cx + 24, cy + f.lineHeight + 2, textMuted, false);
+
+        int cell = crosshairCell();
+        int gridPx = 17 * cell;
+        int gx0 = cx + 8;
+        int gy0 = cy + 36;
+        Ui.rrect(g, gx0 - 4, gy0 - 4, gridPx + 8, gridPx + 8, lm ? 0xFFE2E8F0 : 0xFF04060A, 7);
+        Ui.rframe(g, gx0 - 4, gy0 - 4, gridPx + 8, gridPx + 8, (0x20 << 24) | borderRgb, 7);
+
+        boolean invert = AstucyConfig.isCrosshairInvert();
+        int pixCol = invert ? (lm ? 0xFF0F172A : 0xFFFFFFFF) : (0xFF000000 | (m.fgColor & 0xFFFFFF));
+        long[] rows = AstucyConfig.crosshairRows();
+        for (int py = 0; py < 17; py++) {
+            long row = rows[py];
+            for (int px = 0; px < 17; px++) {
+                int xc = gx0 + px * cell;
+                int yc = gy0 + py * cell;
+                boolean center = px == 8 || py == 8;
+                boolean hov = inside((int) mx, (int) my, xc, yc, cell, cell);
+                boolean on = ((row >> px) & 1L) != 0L;
+                int bgCell = on ? pixCol
+                        : hov ? 0x5A22C55E
+                        : (px == 8 && py == 8) ? 0x2422C55E
+                        : center ? ((0x14 << 24) | borderRgb)
+                        : ((px + py) % 2 == 0) ? (lm ? 0xFFF1F5F9 : 0xFF0E131B) : (lm ? 0xFFE2E8F0 : 0xFF0A0E15);
+                Ui.rect(g, xc, yc, cell - 1, cell - 1, bgCell);
+            }
+        }
+        g.drawString(AstucyFonts.ui8(), "Left-click/drag: Paint  Â·  Right-click/drag: Erase",
+                gx0, gy0 + gridPx + 6, textMuted, false);
+
+        int rx = gx0 + gridPx + 18;
+        int rw = Math.max(150, cx + cw - rx - 8);
+        g.drawString(AstucyFonts.ui8(), "LIVE PREVIEW (1:1)", rx, gy0 - 2, textMuted, false);
+        int prevY = gy0 + 12;
+        Ui.rrect(g, rx, prevY, 54, 54, 0xFF0B0F17, 6);
+        Ui.rect(g, rx + 27, prevY + 1, 26, 52, 0x28CBD5E1);
+        Ui.rframe(g, rx, prevY, 54, 54, (0x20 << 24) | borderRgb, 6);
+        int pcx = rx + 27;
+        int pcy = prevY + 27;
+        for (int py = 0; py < 17; py++) {
+            long row = rows[py];
+            for (int px = 0; px < 17; px++) {
+                if (((row >> px) & 1L) != 0L) {
+                    int ox = pcx + px - 8;
+                    int oy = pcy + py - 8;
+                    if (m.shadow) {
+                        Ui.rect(g, ox - 1, oy - 1, 3, 3, 0xDC000000);
+                    }
+                    Ui.rect(g, ox, oy, 1, 1, pixCol);
+                }
+            }
+        }
+
+        g.drawString(AstucyFonts.ui8(), "PRESETS", rx, prevY + 62, textMuted, false);
+        String[] presets = {"Cross", "Dot", "Gap", "X", "Clear"};
+        int prW = Math.max(24, (rw - 16) / 5);
+        int prY = prevY + 74;
+        for (int pi = 0; pi < presets.length; pi++) {
+            int bxp = rx + pi * (prW + 4);
+            boolean phov = inside((int) mx, (int) my, bxp, prY, prW, 18);
+            Ui.rrect(g, bxp, prY, prW, 18, phov ? ((0x2C << 24) | borderRgb) : ((0x14 << 24) | borderRgb), 5);
+            Ui.ctext(g, AstucyFonts.ui8(), presets[pi], bxp + prW / 2, prY + 5, textOn);
+        }
+
+        int invY = prevY + 100;
+        g.drawString(f, "Invert Color", rx, invY + 2, textOn, false);
+        Ui.toggle(g, rx + rw - 38, invY, 36, 16, invert, toggleAnim("ch_inv", invert));
+
+        int outY = invY + 24;
+        g.drawString(f, "Outline", rx, outY + 2, textOn, false);
+        Ui.toggle(g, rx + rw - 38, outY, 36, 16, m.shadow, toggleAnim("ch_out", m.shadow));
+
+        int swY = outY + 26;
+        g.drawString(AstucyFonts.ui8(), "COLOR", rx, swY, textMuted, false);
+        int pitch = Math.min(18, Math.max(12, rw / Module.SWATCHES.length));
+        for (int s = 0; s < Module.SWATCHES.length; s++) {
+            Ui.swatch(g, rx + s * pitch, swY + 12, pitch - 3, Module.SWATCHES[s],
+                    !invert && (m.fgColor & 0xFFFFFF) == (Module.SWATCHES[s] & 0xFFFFFF));
+        }
+
+        int by = cy + ch - 26;
+        boolean h1 = inside((int) mx, (int) my, cx, by, 136, 18);
+        boolean h2 = inside((int) mx, (int) my, cx + 146, by, 136, 18);
+        Ui.rrect(g, cx, by, 136, 18, Ui.mix((0x1E << 24) | borderRgb, (0x34 << 24) | borderRgb, anim("ob1", h1 ? 1f : 0f, 16f)));
+        Ui.ctext(g, f, "RESET STYLE", cx + 68, by + 5, textOn);
+        Ui.rrect(g, cx + 146, by, 136, 18, Ui.mix((0x1E << 24) | borderRgb, (0x34 << 24) | borderRgb, anim("ob2", h2 ? 1f : 0f, 16f)));
+        Ui.ctext(g, f, "BACK", cx + 146 + 68, by + 5, textOn);
+    }
+
+    private boolean clickCrosshairOptions(int px, int py, boolean right) {
+        int cell = crosshairCell();
+        int gridPx = 17 * cell;
+        int gx0 = cx + 8;
+        int gy0 = cy + 36;
+        if (inside(px, py, gx0, gy0, gridPx, gridPx)) {
+            int cpx = (px - gx0) / cell;
+            int cpy = (py - gy0) / cell;
+            crosshairPaint = !right;
+            AstucyConfig.setCrosshairPixel(cpx, cpy, crosshairPaint);
+            return true;
+        }
+        int rx = gx0 + gridPx + 18;
+        int rw = Math.max(150, cx + cw - rx - 8);
+        int prevY = gy0 + 12;
+        String[] presets = {"Cross", "Dot", "Gap", "X", "Clear"};
+        int prW = Math.max(24, (rw - 16) / 5);
+        int prY = prevY + 74;
+        if (py >= prY && py < prY + 18) {
+            for (int pi = 0; pi < presets.length; pi++) {
+                int bxp = rx + pi * (prW + 4);
+                if (px >= bxp && px < bxp + prW) {
+                    AstucyConfig.applyCrosshairPreset(presets[pi]);
+                    return true;
+                }
+            }
+        }
+        int invY = prevY + 100;
+        if (inside(px, py, rx, invY, rw, 20)) {
+            AstucyConfig.setCrosshairInvert(!AstucyConfig.isCrosshairInvert());
+            return true;
+        }
+        int outY = invY + 24;
+        if (inside(px, py, rx, outY, rw, 20)) {
+            option.shadow = !option.shadow;
+            AstucyConfig.save();
+            return true;
+        }
+        int swY = outY + 26;
+        int pitch = Math.min(18, Math.max(12, rw / Module.SWATCHES.length));
+        if (px >= rx && px < rx + Module.SWATCHES.length * pitch && py >= swY + 12 && py < swY + 12 + pitch) {
+            int si = clamp((px - rx) / pitch, 0, Module.SWATCHES.length - 1);
+            AstucyConfig.setCrosshairInvert(false);
+            option.fgColor = Module.SWATCHES[si];
+            AstucyConfig.save();
+            return true;
+        }
+        int by = cy + ch - 26;
+        if (inside(px, py, cx, by, 136, 18)) {
+            AstucyConfig.resetCrosshair();
+            option.resetStyle();
+            AstucyConfig.save();
+            return true;
+        }
+        if (inside(px, py, cx + 146, by, 136, 18)) {
+            option = null;
+            optScroll = 0;
+            optScrollTarget = 0;
+            return true;
+        }
+        return true;
+    }
+}

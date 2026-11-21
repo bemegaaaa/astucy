@@ -56,7 +56,13 @@ impl Pose {
     pub fn dimensions(self, scale: f32) -> Dimensions {
         let (width, height, eye_height) = match self {
             Self::Standing => (0.6 * scale, 1.8 * scale, 1.62 * scale),
-            Self::Crouching => (0.6 * scale, 1.5 * scale, 1.27 * scale),
+            Self::Crouching => {
+                if horizon_core::version::is_189_mode() {
+                    (0.6 * scale, 1.8 * scale, 1.54 * scale)
+                } else {
+                    (0.6 * scale, 1.5 * scale, 1.27 * scale)
+                }
+            }
             Self::Swimming | Self::FallFlying | Self::SpinAttack => {
                 (0.6 * scale, 0.6 * scale, 0.4 * scale)
             }
@@ -166,9 +172,9 @@ impl MotionWorld<'_, '_, '_> {
         // Player.getDesiredPose: sleeping, swimming, gliding, Riptide's spin.
         let desired = if self.player.sleeping {
             Pose::Sleeping
-        } else if self.player.swimming {
+        } else if self.player.swimming && !horizon_core::version::is_189_mode() {
             Pose::Swimming
-        } else if self.player.fall_flying {
+        } else if self.player.fall_flying && !horizon_core::version::is_189_mode() {
             Pose::FallFlying
         } else if self.player.auto_spin_attack_ticks > 0 {
             Pose::SpinAttack
@@ -181,8 +187,10 @@ impl MotionWorld<'_, '_, '_> {
             desired
         } else if self.can_fit_pose(Pose::Crouching)? {
             Pose::Crouching
-        } else {
+        } else if !horizon_core::version::is_189_mode() {
             Pose::Swimming
+        } else {
+            Pose::Standing
         };
         self.player.set_pose(pose)
     }

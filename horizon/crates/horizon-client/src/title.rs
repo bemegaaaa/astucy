@@ -167,13 +167,17 @@ fn draw_astucy_title_hero(atlas: &HudAtlas, batch: &mut HudBatch) {
             crate::menu_style::hud_colour(0xF8FAFC, (255.0 * ease) as u8),
             "A S T U C Y",
         );
+        let edition_label = format!(
+            "CLIENT  ·  HORIZON {} RUST",
+            horizon_core::version::astucy_mc_version()
+        );
         ui.text_centered(
             crate::ui_theme::Face::Mono,
             11.0,
             uw * 0.5,
             cy + 44.0,
             crate::menu_style::hud_colour(0x4ADE80, (220.0 * ease) as u8),
-            "CLIENT  ·  HORIZON 26.3 RUST",
+            &edition_label,
         );
         let k = ui.density / ui.scale;
         let res = ((sx + 20.0) * k, (cy + 22.0) * k, 34.0 * k);
@@ -659,6 +663,17 @@ pub fn list_worlds(saves: &Path) -> Vec<WorldEntry> {
                 Some(horizon_world::nbt::Tag::Long(millis)) if *millis >= 0 => std::time::UNIX_EPOCH + std::time::Duration::from_millis(*millis as u64),
                 _ => modified,
             };
+            let raw_version = data.get("Version").and_then(|v| v.get("Name"))
+                .and_then(|v| match v { horizon_world::nbt::Tag::String(s) => Some(s.to_string_lossy()), _ => None })
+                .unwrap_or_else(|| lang::get_or("selectWorld.versionUnknown", "Unknown"));
+            let version = if horizon_core::version::is_189_mode() {
+                if raw_version != "1.8.9" && raw_version != horizon_core::VANILLA_VERSION {
+                    return None;
+                }
+                "1.8.9".to_owned()
+            } else {
+                raw_version
+            };
             Some(WorldEntry {
                 folder,
                 name: level.name,
@@ -666,9 +681,7 @@ pub fn list_worlds(saves: &Path) -> Vec<WorldEntry> {
                 hardcore: level.hardcore,
                 modified,
                 commands: matches!(data.get("allowCommands"), Some(horizon_world::nbt::Tag::Byte(v)) if *v != 0),
-                version: data.get("Version").and_then(|v| v.get("Name"))
-                    .and_then(|v| match v { horizon_world::nbt::Tag::String(s) => Some(s.to_string_lossy()), _ => None })
-                    .unwrap_or_else(|| lang::get_or("selectWorld.versionUnknown", "Unknown")),
+                version,
                 locked: crate::save::SessionLock::is_locked(&path),
                 corrupted: false,
                 incompatible: crate::save::incompatible_version(&path),
@@ -2809,7 +2822,7 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
                         ];
                     }
                 }
-                let version = format!("Horizon {} (Rust)", horizon_core::VANILLA_VERSION);
+                let version = format!("Horizon {} (Rust)", horizon_core::version::astucy_mc_version());
                 batch.text(atlas, &version, 2.0, h - 10.0, u32::MAX, true);
                 // A nightly names its build in the top-left corner, the one spot no button reaches at any GUI
                 // scale, so screenshots and reports say which build they come from.

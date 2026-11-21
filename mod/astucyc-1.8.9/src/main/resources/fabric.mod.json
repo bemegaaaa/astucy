@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "astucyc",
+  "version": "0.1.0",
+  "name": "Astucy Client",
+  "description": "Astucy performance & HUD client for Legacy Fabric.",
+  "authors": ["Astucy"],
+  "contact": {},
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.astucy.client.AstucyClient"
+    ]
+  },
+  "mixins": [
+    "astucyc.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.15.11",
+    "legacy-fabric-api": "*",
+    "minecraft": "1.8.9",
+    "java": ">=8"
+  }
+}

@@ -753,7 +753,7 @@ impl ChatOptions {
 
 /// Combat feel (`docs/pvp.md`): how fights look. Legacy draws them as 1.8.9 did; what the
 /// game sends to a server never changes, so a vanilla server and its anticheat see 26.3.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Combat {
     /// Legacy (1.8.9) instead of Modern.
     pub legacy: bool,
@@ -765,6 +765,17 @@ pub struct Combat {
     /// cooldown, no sweep, 1.8 weapon damage, effects, enchantments and critical hits
     /// (`horizon_client::legacy_combat`). Never used as a client of a server.
     pub rules: bool,
+}
+impl Default for Combat {
+    fn default() -> Self {
+        let is_189 = horizon_core::version::is_189_mode();
+        Self {
+            legacy: is_189,
+            indicator: false,
+            sounds: is_189,
+            rules: is_189,
+        }
+    }
 }
 impl Combat {
     /// Whether this client leaves out sound `name` a server sent: under Legacy with its
@@ -931,6 +942,12 @@ impl Pvp {
                 }
             }
             _ => return false,
+        }
+        if horizon_core::version::is_189_mode() {
+            self.combat.legacy = true;
+            self.combat.rules = true;
+            self.combat.sounds = true;
+            self.combat.indicator = false;
         }
         true
     }

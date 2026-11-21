@@ -132,6 +132,33 @@ pub struct BakedModel {
     pub faces: Vec<BakedFace>,
     pub cube: Option<[super::cube::CubeStyle; 6]>,
 }
+impl BakedModel {
+    /// 6-bit mask of block faces (`Direction` order) completely covered by an opaque,
+    /// non-translucent, non-partial quad on this model.
+    pub fn opaque_covered_faces(&self) -> u8 {
+        let mut mask = 0u8;
+        for face in &self.faces {
+            if face.opaque
+                && !face.translucent
+                && !face.shapes[1].partial
+                && face.shapes[1].cubic
+            {
+                mask |= 1 << (face.quad.facing as usize);
+            }
+        }
+        mask
+    }
+
+    /// Whether this model completely covers all 6 cube faces with opaque quads.
+    pub fn occludes_all_faces(&self) -> bool {
+        self.opaque_covered_faces() == 0b11_1111
+    }
+
+    /// Whether this model has at least one quad without neighbor culling (`cull: None`).
+    pub fn has_uncullable_faces(&self) -> bool {
+        self.faces.iter().any(|face| face.quad.cull.is_none())
+    }
+}
 type VariantKey = (String, [u8; 3], bool);
 /// Empty by default: no state has a model (a dedicated server, which draws
 /// nothing).
@@ -507,6 +534,43 @@ impl StateModels {
             .iter_mut()
             .map(|(variant, model)| (&*variant, model))
     }
+    /// Whether every alternative bound to `state` completely occludes all 6 faces,
+    /// or `None` when `state` has no bound blockstate model (e.g. an empty catalog).
+    pub fn state_occludes(&self, state: BlockStateId) -> Option<bool> {
+        let (choice, selected) = self.state(state)?;
+        let result = match selected {
+            SelectedModels::Variant(_) => {
+                let mut count = 0usize;
+                let mut all_occlude = true;
+                self.choices[*choice].for_each_alternative(selected, |&index| {
+                    count += 1;
+                    all_occlude &= self.baked[index as usize].1.occludes_all_faces();
+                });
+                count > 0 && all_occlude
+            }
+            SelectedModels::Multipart(_) => {
+                let mut covered = 0u8;
+                self.choices[*choice].for_each_alternative(selected, |&index| {
+                    covered |= self.baked[index as usize].1.opaque_covered_faces();
+                });
+                covered == 0b11_1111
+            }
+        };
+        Some(result)
+    }
+
+    /// Whether any alternative bound to `state` contains a face without neighbor culling.
+    pub fn has_uncullable_faces(&self, state: BlockStateId) -> bool {
+        let Some((choice, selected)) = self.state(state) else {
+            return false;
+        };
+        let mut uncullable = false;
+        self.choices[*choice].for_each_alternative(selected, |&index| {
+            uncullable |= self.baked[index as usize].1.has_uncullable_faces();
+        });
+        uncullable
+    }
+
     /// A model baked by [`Self::bake_standalone`], by id (`mymod:block/shaft_half`).
     pub fn standalone(&self, name: &str) -> Option<&BakedModel> {
         let &i = self.standalone.get(name)?;
@@ -747,6 +811,105 @@ mod tests {
         assert_eq!(models.baked.len(), 2);
         assert_eq!(models.standalone.get("lanef:block/shared"), Some(&1));
         Ok(())
+    }
+
+    #[test]
+    fn xray_models_distinguish_occlusion_and_uncullable_faces() {
+        let mut sprites = Sprites::default();
+        let bake = |sprites: &mut Sprites, name: &str, elements: serde_json::Value| {
+            let json = serde_json::json!({
+                "render_type": "solid",
+                "textures": {"all": "horizon:block/stone"},
+                "elements": elements
+            })
+            .to_string();
+            let model = horizon_assets::model::CuboidModel::from_json(&json).unwrap();
+            let library =
+                horizon_assets::resolve::ModelLibrary::new(BTreeMap::from([(name.to_owned(), model)]))
+                    .unwrap();
+            let baked = bake_resolved(
+                Path::new("/nonexistent-horizon-xray-fixture"),
+                sprites,
+                &library.resolve(name).unwrap(),
+                [0, 0, 0],
+                false,
+            )
+            .unwrap();
+            (
+                Variant {
+                    model: name.to_owned(),
+                    rotations: [0, 0, 0],
+                    uv_lock: false,
+                },
+                baked,
+            )
+        };
+        let all_faces = |with_cull: bool| -> serde_json::Map<String, Value> {
+            ["down", "up", "north", "south", "west", "east"]
+                .into_iter()
+                .map(|dir| {
+                    let mut obj = serde_json::json!({"texture": "#all"});
+                    if with_cull {
+                        obj["cullface"] = Value::String(dir.to_owned());
+                    }
+                    (dir.to_owned(), obj)
+                })
+                .collect()
+        };
+        let full_cube = bake(
+            &mut sprites,
+            "horizon:block/stone",
+            serde_json::json!([{"from":[0,0,0],"to":[16,16,16],"faces": all_faces(true)}]),
+        );
+        // Thin 0.5px border strips like Xray_Ultimate's `block/xray/cube`.
+        let xray_strip = bake(
+            &mut sprites,
+            "horizon:block/xray_stone",
+            serde_json::json!([{
+                "from":[0,0,0],
+                "to":[16,16,0.5],
+                "faces": all_faces(true)
+            }]),
+        );
+        // Full ore cube omitting `cullface` like Xray_Ultimate's `block/solid`.
+        let uncullable_ore = bake(
+            &mut sprites,
+            "horizon:block/solid_ore",
+            serde_json::json!([{"from":[0,0,0],"to":[16,16,16],"faces": all_faces(false)}]),
+        );
+        let choices = [
+            r#"{"variants":{"":{"model":"horizon:block/stone"}}}"#,
+            r#"{"variants":{"":{"model":"horizon:block/xray_stone"}}}"#,
+            r#"{"variants":{"":{"model":"horizon:block/solid_ore"}}}"#,
+        ]
+        .into_iter()
+        .map(|def| {
+            let def = BlockStateDefinition::from_json(def).unwrap();
+            CompiledChoices::new(&def).unwrap().map(|v| match v.model.as_str() {
+                "horizon:block/stone" => 0,
+                "horizon:block/xray_stone" => 1,
+                _ => 2,
+            })
+        })
+        .collect();
+        let catalog = StateModels {
+            choices,
+            states: vec![
+                None,
+                Some((0, SelectedModels::Variant(0))),
+                Some((1, SelectedModels::Variant(0))),
+                Some((2, SelectedModels::Variant(0))),
+            ],
+            baked: vec![full_cube, xray_strip, uncullable_ore],
+            ..StateModels::default()
+        };
+        assert_eq!(catalog.state_occludes(BlockStateId(0)), None);
+        assert_eq!(catalog.state_occludes(BlockStateId(1)), Some(true));
+        assert!(!catalog.has_uncullable_faces(BlockStateId(1)));
+        assert_eq!(catalog.state_occludes(BlockStateId(2)), Some(false));
+        assert!(!catalog.has_uncullable_faces(BlockStateId(2)));
+        assert_eq!(catalog.state_occludes(BlockStateId(3)), Some(true));
+        assert!(catalog.has_uncullable_faces(BlockStateId(3)));
     }
 }
 

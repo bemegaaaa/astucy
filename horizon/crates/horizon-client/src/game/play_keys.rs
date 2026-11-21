@@ -128,10 +128,14 @@ impl Game<'_> {
             | KeyCode::Digit7
             | KeyCode::Digit8
             | KeyCode::Digit9
-            | KeyCode::KeyF
             | KeyCode::KeyQ
                 if (self.screen == Screen::Inventory
                     || (self.screen == Screen::Creative && !self.creative_screen.tab().search))
+                    && self.inventory_hotkey(key) => {}
+            KeyCode::KeyF
+                if !horizon_core::version::is_189_mode()
+                    && (self.screen == Screen::Inventory
+                        || (self.screen == Screen::Creative && !self.creative_screen.tab().search))
                     && self.inventory_hotkey(key) => {}
             // The search tab's number keys (scripted presses; the window's
             // keys reach search_tab_hotbar_key before the search box).
@@ -244,14 +248,20 @@ impl Game<'_> {
             },
             // key.swapOffhand: on a server, ServerboundPlayerActionPacket SWAP_ITEM_WITH_OFFHAND
             // (the server swaps the hands and sends both slots back; spectators can't).
-            KeyCode::KeyF if self.screen == Screen::Playing && self.remote.is_some() => {
+            KeyCode::KeyF
+                if !horizon_core::version::is_189_mode()
+                    && self.screen == Screen::Playing
+                    && self.remote.is_some() =>
+            {
                 if !self.spectator()
                     && let Some(r) = self.remote.as_mut()
                 {
                     r.pending_keys.push(key);
                 }
             }
-            KeyCode::KeyF if self.screen == Screen::Playing => {
+            KeyCode::KeyF
+                if !horizon_core::version::is_189_mode() && self.screen == Screen::Playing =>
+            {
                 // handleKeybinds: the number keys select before key.swapOffhand.
                 self.select_queued_hotbar();
                 // handlePlayerAction SWAP_ITEM_WITH_OFFHAND: setItemInHand for

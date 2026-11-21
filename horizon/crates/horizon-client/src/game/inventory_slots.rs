@@ -194,7 +194,13 @@ impl Game<'_> {
             ),
             500..504 => (8.0, 8.0 + (i - 500) as f32 * 18.0),
             // InventoryMenu: the shield slot.
-            504 => (77.0, 62.0),
+            504 => {
+                if horizon_core::version::is_189_mode() {
+                    (-10000.0, -10000.0)
+                } else {
+                    (77.0, 62.0)
+                }
+            }
             300..500 if let Some(p) = self.native_screen_slot(i - 300) => p,
             300..500 => match self.container_kind() {
                 Some(BlockEntity::Furnace(_)) => {
@@ -444,7 +450,11 @@ impl Game<'_> {
                 v.extend((0..self.craft_size * self.craft_size).map(|i| 100 + i));
                 v.push(200);
                 if self.craft_size == 2 {
-                    v.extend(500..505);
+                    v.extend(if horizon_core::version::is_189_mode() {
+                        500..504
+                    } else {
+                        500..505
+                    });
                 }
             }
         }

@@ -202,7 +202,8 @@ public class RShiftScreen extends Screen {
 
     // barra de estado do card (cores da Ui)
 
-    private boolean modsTab = false;
+    private int tab = 0; // 0 = MODULES, 1 = MODS, 2 = SETTINGS
+    private Boolean crosshairPaint = null;
     private Object filter = null;   // null = TODOS, "novos" = novos, ModuleCategory = categoria
     private String query = "";
     private int sel = 0;
@@ -236,6 +237,7 @@ public class RShiftScreen extends Screen {
 
     private int gw, gh, x0, y0, pw, ph, topH, sideW;
     private int cx, cy, cw, ch, cols, cardW, cardH, gridY;
+    private float uiScale = 1f;
 
     public RShiftScreen() {
         super(Component.literal("Astucy"));
@@ -288,7 +290,7 @@ public class RShiftScreen extends Screen {
         if (chipLeft <= 0) {
             chipLeft = x0 + pw - 26 - 8 - AccountMenu.chipWidth(AstucyFonts.menu());
         }
-        int topRight = chipLeft - 8;
+        int topRight = chipLeft - 68;
         int topLeft = Math.max(cx + 120, tabEndX);
         int w = Math.max(0, Math.min(160, topRight - topLeft));
         if (topRight - topLeft < 52) {
@@ -340,11 +342,26 @@ public class RShiftScreen extends Screen {
      * geometria
      * ------------------------------------------------------------------ */
 
+    private float computeUiScale() {
+        Minecraft mc = Minecraft.getInstance();
+        int physW = Math.max(1, mc.getWindow().getWidth());
+        int physH = Math.max(1, mc.getWindow().getHeight());
+        double guiScale = Math.max(1.0, mc.getWindow().getGuiScale());
+        double density = Math.max(0.65, Math.min(4.0, Math.min(physW / 1040.0, physH / 700.0)));
+        return (float) (density / guiScale);
+    }
+
     private void layout(Font f) {
-        gw = width;
-        gh = height;
-        pw = clamp((int) (gw * 0.84), 500, 900);
-        ph = clamp((int) (gh * 0.84), 285, 620);
+        uiScale = computeUiScale();
+        Minecraft mc = Minecraft.getInstance();
+        int physW = Math.max(1, mc.getWindow().getWidth());
+        int physH = Math.max(1, mc.getWindow().getHeight());
+        double guiScale = Math.max(1.0, mc.getWindow().getGuiScale());
+        double density = uiScale * guiScale;
+        gw = Math.max(1, (int) Math.round(physW / density));
+        gh = Math.max(1, (int) Math.round(physH / density));
+        pw = clamp((int) Math.round(gw * 0.86), 660, 900);
+        ph = clamp((int) Math.round(gh * 0.84), 420, 560);
         pw = Math.min(pw, gw - 16);
         ph = Math.min(ph, gh - 16);
         // animação de abertura e fechamento suave (spring vertical + fade)
@@ -359,8 +376,8 @@ public class RShiftScreen extends Screen {
 
         x0 = (gw - pw) / 2;
         y0 = (gh - ph) / 2 + slidePanelY;
-        topH = f.lineHeight + 20;
-        sideW = clamp(pw / 6, 108, 144);
+        topH = 44;
+        sideW = clamp((int) Math.round(pw / 5.8), 138, 168);
         cx = x0 + sideW + 12;
         cy = y0 + topH + 10;
         cw = pw - sideW - 22;
@@ -555,8 +572,9 @@ public class RShiftScreen extends Screen {
     @Override
     public void mouseMoved(double x, double y) {
         super.mouseMoved(x, y);
-        this.mx = x;
-        this.my = y;
+        float s = uiScale > 0f ? uiScale : computeUiScale();
+        this.mx = x / s;
+        this.my = y / s;
     }
 
     @Override
@@ -580,8 +598,23 @@ public class RShiftScreen extends Screen {
 
     @Override
     public boolean mouseDragged(MouseButtonEvent event, double x, double y) {
-        this.mx = x;
-        this.my = y;
+        float s = uiScale > 0f ? uiScale : computeUiScale();
+        this.mx = event.x() / s;
+        this.my = event.y() / s;
+        if (crosshairPaint != null && tab == 0 && option != null && "crosshair".equals(option.id)) {
+            int cell = crosshairCell();
+            int gx0 = cx + 8;
+            int gy0 = cy + 36;
+            int gridPx = 17 * cell;
+            if (mx >= gx0 && mx < gx0 + gridPx && my >= gy0 && my < gy0 + gridPx) {
+                int cpx = (int) Math.floor((mx - gx0) / cell);
+                int cpy = (int) Math.floor((my - gy0) / cell);
+                if (cpx >= 0 && cpx < 17 && cpy >= 0 && cpy < 17) {
+                    AstucyConfig.setCrosshairPixel(cpx, cpy, crosshairPaint);
+                }
+            }
+            return true;
+        }
         if (drag != 0) {
             applyDrag();
             return true;
@@ -691,6 +724,10 @@ public class RShiftScreen extends Screen {
 
     @Override
     public boolean mouseReleased(MouseButtonEvent event) {
+        if (crosshairPaint != null) {
+            crosshairPaint = null;
+            AstucyConfig.save();
+        }
         if (drag != 0) {
             AstucyConfig.save();
         }
@@ -728,8 +765,8 @@ public class RShiftScreen extends Screen {
         }
         // posição do EVENTO (mx podia estar um clique atrasado — era o slider
         // que "ia pra frente e voltava sozinho")
-        this.mx = event.x();
-        this.my = event.y();
+        this.mx = event.x() / uiScale;
+        this.my = event.y() / uiScale;
         // clique novo sempre zera arrasto antigo (nada fica "preso")
         drag = 0;
         int px = (int) mx;
@@ -741,10 +778,27 @@ public class RShiftScreen extends Screen {
             return true;
         }
 
+        // botão Dark / Light mode pill ao lado do chip da conta
+        int chipLeft = AccountMenu.chipX() > 0 ? AccountMenu.chipX()
+                : (x0 + pw - 26 - 8 - AccountMenu.chipWidth(f));
+        int tBtnW = 54;
+        int tBtnX = chipLeft - tBtnW - 6;
+        int tBtnY = y0 + (topH - 18) / 2;
+        if (inside(px, py, tBtnX, tBtnY, tBtnW, 18)) {
+            AstucyConfig.setPref("light_mode", !AstucyConfig.prefBool("light_mode", false));
+            return true;
+        }
+
         // campo de pesquisa (topo) prioriza o foco
-        if (!modsTab && option == null) {
+        if (tab == 0 && option == null) {
             int[] sb = searchBox();
             if (inside(px, py, sb[0], sb[1], sb[2], sb[3])) {
+                if (event.button() == 1 || (!searchText.isEmpty() && px >= sb[0] + sb[2] - 16)) {
+                    searchText = "";
+                    caret = 0;
+                    applyQuery();
+                    return true;
+                }
                 searchFocus = true;
                 caret = searchText.length();
                 return true;
@@ -765,21 +819,21 @@ public class RShiftScreen extends Screen {
         int stx = t2x + t2w + 4;
         int gwTab = 54;
         if (inside(px, py, t1x, y0 + 6, t1w, topH - 12)) {
-            modsTab = false;
+            tab = 0;
             option = null;
             catStamp = System.currentTimeMillis();
             return true;
         }
         if (inside(px, py, t2x, y0 + 6, t2w, topH - 12)) {
-            modsTab = true;
+            tab = 1;
             option = null;
+            catStamp = System.currentTimeMillis();
             return true;
         }
-
-        // engrenagem de configs do client (ao lado de MODS)
         if (inside(px, py, stx, y0 + 6, gwTab, topH - 12)) {
-            AstucyConfig.save();
-            minecraft.gui.setScreen(new ClientSettingsScreen(this));
+            tab = 2;
+            option = null;
+            catStamp = System.currentTimeMillis();
             return true;
         }
 
@@ -814,18 +868,19 @@ public class RShiftScreen extends Screen {
             minecraft.gui.setScreen(new HudEditorScreen());
             return true;
         }
-        if (inside(px, py, x0 + 10, sideBtnY + 48, sideW - 20, 20)) {
-            AstucyConfig.save();
-            minecraft.gui.setScreen(new ClientSettingsScreen(this));
-            return true;
-        }
 
-        if (modsTab) {
+        if (tab == 1) {
             return super.mouseClicked(event, dbl);
+        }
+        if (tab == 2) {
+            return clickSettingsTab(px, py);
         }
 
         // opções de módulo
         if (option != null) {
+            if ("crosshair".equals(option.id)) {
+                return clickCrosshairOptions(px, py, event.button() == 1);
+            }
             return clickOptions(px, py);
         }
 
@@ -1254,8 +1309,9 @@ public class RShiftScreen extends Screen {
             return true;
         }
         if (key == GLFW.GLFW_KEY_TAB) {
-            modsTab = !modsTab;
+            tab = (tab + 1) % 3;
             option = null;
+            catStamp = System.currentTimeMillis();
             return true;
         }
         if (option != null) {
@@ -1271,7 +1327,7 @@ public class RShiftScreen extends Screen {
             }
             return true;
         }
-        if (!modsTab) {
+        if (tab == 0) {
             List<Module> list = filtered();
             switch (key) {
                 case GLFW.GLFW_KEY_LEFT -> sel = Math.max(0, sel - 1);
@@ -1416,8 +1472,8 @@ public class RShiftScreen extends Screen {
         // cursor ao vivo do MouseHandler: durante um arrasto o mouseX/mouseY do
         // frame fica congelado (era o slider que "travava" no meio do movimento)
         Minecraft mcHud = Minecraft.getInstance();
-        this.mx = mcHud.mouseHandler.getScaledXPos(mcHud.getWindow());
-        this.my = mcHud.mouseHandler.getScaledYPos(mcHud.getWindow());
+        this.mx = mcHud.mouseHandler.getScaledXPos(mcHud.getWindow()) / uiScale;
+        this.my = mcHud.mouseHandler.getScaledYPos(mcHud.getWindow()) / uiScale;
 
         // arrasto direto: segurar o botão sobre a barra ou um slider já arrasta
         // (não depende do evento de clique — clique rápido não "perde" mais o arrasto)
@@ -1480,17 +1536,39 @@ public class RShiftScreen extends Screen {
         } catch (IllegalStateException alreadyBlurred) {
             // o proprio Screen ja aplicou o blur neste frame
         }
+        g.pose().pushMatrix();
+        g.pose().scale(uiScale, uiScale);
         int scrimA = Math.round(0x5C * openEase);
         Ui.rect(g, 0, 0, gw, gh, (scrimA << 24) | 0x030508);
 
-        // painel principal: obsidiana profunda de alto contraste + grão sutil
+        // partículas esmeralda sutis flutuando atrás do painel (1:1 com Rust)
+        float nowSecs = nowMs / 1000f;
+        for (int i = 0; i < 18; i++) {
+            float fi = i;
+            float ppx = (float) ((fi * 0.417 + nowSecs * (0.015 + (i % 3) * 0.005)) % 1.0) * gw;
+            float ppy = (float) ((((fi * 0.731 - nowSecs * (0.020 + (i % 4) * 0.004)) % 1.0) + 1.0) % 1.0) * gh;
+            int pa = Math.round((42f + 48f * Math.abs((float) Math.sin(nowSecs * 2.2 + fi))) * openEase);
+            int psz = (i % 3 == 0) ? 2 : 1;
+            Ui.rect(g, Math.round(ppx), Math.round(ppy), psz, psz, (pa << 24) | 0x4ADE80);
+        }
+
+        boolean lm = AstucyConfig.prefBool("light_mode", false);
+        int pPanel = lm ? 0xF6F8FAFC : 0xF4070A0F;
+        int pChip = lm ? 0xFFE2E8F0 : 0xFF10141D;
+        int pText = lm ? 0xFF0F172A : 0xFFFFFFFF;
+        int pMuted = lm ? 0xFF475569 : 0xFF8A94A6;
+        int pBorderRgb = lm ? 0x0F172A : 0xFFFFFF;
+
+        // painel principal: obsidiana profunda (dark) ou vidro claro (light)
         int pr = 12;
         Ui.shadow(g, x0, y0, pw, ph);
-        if (!Skin.boxGrad(g, x0, y0, pw, ph, 0xF4080B10, 0xF805070B, pr)) {
-            Ui.rrect(g, x0, y0, pw, ph, 0xF4070A0F, pr);
+        if (lm || !Skin.boxGrad(g, x0, y0, pw, ph, 0xF4080B10, 0xF805070B, pr)) {
+            Ui.rrect(g, x0, y0, pw, ph, pPanel, pr);
         }
-        Ui.rframe(g, x0, y0, pw, ph, 0x18FFFFFF, pr);
-        Skin.noise(g, x0 + 4, y0 + 4, pw - 8, ph - 8);
+        Ui.rframe(g, x0, y0, pw, ph, ((lm ? 0x26 : 0x18) << 24) | pBorderRgb, pr);
+        if (!lm) {
+            Skin.noise(g, x0 + 4, y0 + 4, pw - 8, ph - 8);
+        }
 
         Module mb = Modules.find("menublur");
         boolean showSpot = mb == null || !mb.enabled || mb.boolProp("spotlight", true);
@@ -1501,15 +1579,17 @@ public class RShiftScreen extends Screen {
         }
 
         // divisória sutil do cabeçalho
-        Ui.hline(g, x0 + 6, y0 + topH, pw - 12, 0x10FFFFFF);
+        Ui.hline(g, x0 + 6, y0 + topH, pw - 12, ((lm ? 0x18 : 0x10) << 24) | pBorderRgb);
 
-        // laterais: sidebar encaixada em obsidiana mais escura
-        if (!Skin.boxGrad(g, x0 + 6, y0 + topH + 5, sideW - 4, ph - topH - 11, 0x58030508, 0x70020306, 9)) {
+        // laterais: sidebar encaixada
+        if (lm) {
+            Ui.rrect(g, x0 + 6, y0 + topH + 5, sideW - 4, ph - topH - 11, 0xAAE2E8F0, 9);
+        } else if (!Skin.boxGrad(g, x0 + 6, y0 + topH + 5, sideW - 4, ph - topH - 11, 0x58030508, 0x70020306, 9)) {
             Ui.rrect(g, x0 + 6, y0 + topH + 5, sideW - 4, ph - topH - 11, 0x48000000, 9);
         }
         // painel de opcoes do modulo: mesmo tom da sidebar
-        if (option != null) {
-            Ui.rrect(g, cx - 6, cy - 4, cw + 12, ch + 8, 0x36000000, 9);
+        if (option != null && tab == 0) {
+            Ui.rrect(g, cx - 6, cy - 4, cw + 12, ch + 8, lm ? 0x220F172A : 0x36000000, 9);
         }
 
         // topo: logo oficial Astucy girando e voando até encaixar ao lado de ASTUCY + abas com indicador esmeralda
@@ -1523,11 +1603,11 @@ public class RShiftScreen extends Screen {
                 logoFlight,
                 19f, 13.5f,
                 logoIdleAng,
-                0xFFFFFFFF, 0xFF22C55E);
+                pText, 0xFF22C55E);
 
         Font brand = AstucyFonts.brand();
         float brandFade = Math.min(1f, Math.max(0f, (logoFlight - 0.22f) / 0.78f));
-        int brandCol = (((int) (0xFF * brandFade)) << 24) | (Ui.TEXT & 0xFFFFFF);
+        int brandCol = (((int) (0xFF * brandFade)) << 24) | (pText & 0xFFFFFF);
         int brandShift = Math.round((1f - brandFade) * 6f);
         Ui.spaced(g, brand, "ASTUCY", x0 + 29 + brandShift, y0 + (topH - brand.lineHeight) / 2 + 1, brandCol, 2);
 
@@ -1535,41 +1615,52 @@ public class RShiftScreen extends Screen {
         int t1w = 58;
         int t2x = t1x + t1w + 4;
         int t2w = 42;
-        int gx = t2x + t2w + 4;
+        int stx = t2x + t2w + 4;
         int gwTab = 54;
-        float tab = anim("tab", modsTab ? 1f : 0f, 16f);
-        int ix = Math.round(t1x + (t2x - t1x) * tab);
-        int iw = Math.round(t1w + (t2w - t1w) * tab);
-        Ui.rrect(g, ix + 6, y0 + topH - 2, iw - 12, 2, 0xFF22C55E, 1);
-        drawTab(g, f, t1x, y0 + 5, t1w, topH - 10, "MODULES", !modsTab);
-        drawTab(g, f, t2x, y0 + 5, t2w, topH - 10, "MODS", modsTab);
-        boolean ghov = inside((int) mx, (int) my, gx, y0 + 5, gwTab, topH - 10);
-        float gha = anim("setTab", ghov ? 1f : 0f, 16f);
-        if (gha > 0.02f) {
-            Ui.rrect(g, gx, y0 + 5, gwTab, topH - 10, ((int) (0x18 * gha) << 24) | 0xFFFFFF, 5);
-        }
-        Ui.ctext(g, f, "SETTINGS", gx + gwTab / 2, y0 + (topH - f.lineHeight) / 2 + 1,
-                Ui.mix(0xFF8A94A6, Ui.TEXT, gha));
-        tabEndX = gx + gwTab + 8;
+        int targetTabX = tab == 0 ? t1x : (tab == 1 ? t2x : stx);
+        int targetTabW = tab == 0 ? t1w : (tab == 1 ? t2w : gwTab);
+        int ix = Math.round(anim("tabX", targetTabX, 18f));
+        int iw = Math.round(anim("tabW", targetTabW, 18f));
+        Ui.rrect(g, ix + 6, y0 + topH - 2, Math.max(8, iw - 12), 2, 0xFF22C55E, 1);
+        drawTab(g, f, t1x, y0 + 5, t1w, topH - 10, "MODULES", tab == 0, lm);
+        drawTab(g, f, t2x, y0 + 5, t2w, topH - 10, "MODS", tab == 1, lm);
+        drawTab(g, f, stx, y0 + 5, gwTab, topH - 10, "SETTINGS", tab == 2, lm);
+        tabEndX = stx + gwTab + 8;
 
-        // conta logada (chip + dropdown) ao lado do X — calcula chipX antes do searchBox()
+        // conta logada (chip + dropdown) ao lado do X — calcula chipX antes do pill Dark/Light e searchBox()
         AccountMenu.cursor(mx, my);
         AccountMenu.drawChip(g, f, x0, y0, pw, topH);
 
-        if (!modsTab && option == null) {
+        // Dark / Light mode toggle pill ao lado do Account chip
+        int chipLeft = AccountMenu.chipX() > 0 ? AccountMenu.chipX() : (x0 + pw - 26 - 8 - AccountMenu.chipWidth(f));
+        int tBtnW = 54;
+        int tBtnX = chipLeft - tBtnW - 6;
+        int tBtnY = y0 + (topH - 18) / 2;
+        boolean thov = inside((int) mx, (int) my, tBtnX, tBtnY, tBtnW, 18);
+        Ui.rrect(g, tBtnX, tBtnY, tBtnW, 18, thov ? 0x2A22C55E : pChip, 6);
+        Ui.rframe(g, tBtnX, tBtnY, tBtnW, 18, thov ? 0x9922C55E : ((0x1A << 24) | pBorderRgb), 6);
+        Skin.icon(g, lm ? "fullbright" : "moon", tBtnX + 5, tBtnY + 4, 10, lm ? 0xFFF59E0B : 0xFF94A3B8);
+        g.text(AstucyFonts.ui8(), lm ? "LIGHT" : "DARK", tBtnX + 18, tBtnY + (18 - AstucyFonts.ui8().lineHeight) / 2 + 1, pText, false);
+
+        if (tab == 0 && option == null) {
             int[] sb = searchBox();
             if (sb[2] >= 52) {
                 boolean shv = inside((int) mx, (int) my, sb[0], sb[1], sb[2], sb[3]);
                 float sf = anim("sfocus", searchFocus ? 1f : (shv ? 0.35f : 0f), 14f);
-                Ui.rrect(g, sb[0], sb[1], sb[2], sb[3], Ui.mix(0xFF05070B, 0xFF0A0E16, sf), 6);
-                Ui.rframe(g, sb[0], sb[1], sb[2], sb[3], Ui.mix(0x1CFFFFFF, 0xAA22C55E, sf), 6);
+                int sBg = lm ? 0xFFFFFFFF : Ui.mix(0xFF05070B, 0xFF0A0E16, sf);
+                Ui.rrect(g, sb[0], sb[1], sb[2], sb[3], sBg, 6);
+                Ui.rframe(g, sb[0], sb[1], sb[2], sb[3], Ui.mix(((0x1C << 24) | pBorderRgb), 0xAA22C55E, sf), 6);
                 Ui.icon(g, "search", sb[0] + 6, sb[1] + 4, 10, searchFocus ? 0xFF22C55E : 0xFF64748B);
                 int tx = sb[0] + 19;
                 int tfy = sb[1] + (sb[3] - f.lineHeight) / 2 + 1;
                 if (searchText.isEmpty() && !searchFocus) {
                     g.text(f, "Search...", tx, tfy, 0xFF64748B, false);
                 } else {
-                    g.text(f, searchText, tx, tfy, Ui.TEXT, false);
+                    g.text(f, searchText, tx, tfy, pText, false);
+                    int clrX = sb[0] + sb[2] - 13;
+                    boolean clrHov = inside((int) mx, (int) my, clrX - 3, sb[1], 16, sb[3]);
+                    g.text(AstucyFonts.ui8(), "x", clrX, sb[1] + (sb[3] - AstucyFonts.ui8().lineHeight) / 2 + 1,
+                            clrHov ? pText : 0xFF64748B, false);
                 }
                 if (searchFocus && (System.currentTimeMillis() / 500L) % 2L == 0L) {
                     int cxr = tx + f.width(searchText.substring(0, Math.min(caret, searchText.length())));
@@ -1582,34 +1673,44 @@ public class RShiftScreen extends Screen {
         int cbx = x0 + pw - 26;
         int cby = y0 + (topH - 18) / 2;
         float chv = anim("close", inside((int) mx, (int) my, cbx, cby, 18, 18) ? 1f : 0f, 16f);
-        Ui.rrect(g, cbx, cby, 18, 18, Ui.mix(0xFF10141D, 0x38E25661, chv), 6);
-        Ui.rframe(g, cbx, cby, 18, 18, Ui.mix(0x18FFFFFF, 0x88E25661, chv), 6);
-        Skin.icon(g, "close", cbx + 4, cby + 4, 10, Ui.mix(0xFF94A3B8, 0xFFFFFFFF, chv));
+        Ui.rrect(g, cbx, cby, 18, 18, Ui.mix(pChip, 0x38E25661, chv), 6);
+        Ui.rframe(g, cbx, cby, 18, 18, Ui.mix(((0x18 << 24) | pBorderRgb), 0x88E25661, chv), 6);
+        Skin.icon(g, "close", cbx + 4, cby + 4, 10, Ui.mix(pMuted, 0xFFFFFFFF, chv));
 
         // sidebar
-        drawSidebar(g, f);
+        drawSidebar(g, f, lm);
 
-        if (modsTab) {
+        if (tab == 1) {
             drawMods(g, f);
+        } else if (tab == 2) {
+            drawSettingsTab(g, f, lm);
         } else if (option != null) {
-            drawOptions(g, f);
-            if (colorEdit >= 0) {
-                drawPalette(g, f);
+            if ("crosshair".equals(option.id)) {
+                drawCrosshairOptions(g, f, lm);
+            } else {
+                drawOptions(g, f);
+                if (colorEdit >= 0) {
+                    drawPalette(g, f);
+                }
             }
         } else {
-            drawGrid(g, f);
+            drawGrid(g, f, lm);
         }
 
         // dropdown de conta por cima de tudo
         AccountMenu.drawPanel(g, f);
+        g.pose().popMatrix();
     }
 
-    private void drawTab(GuiGraphicsExtractor g, Font f, int x, int y, int w, int h, String label, boolean active) {
+    private void drawTab(GuiGraphicsExtractor g, Font f, int x, int y, int w, int h, String label, boolean active, boolean lm) {
         boolean hov = inside((int) mx, (int) my, x, y, w, h);
+        int borderRgb = lm ? 0x0F172A : 0xFFFFFF;
         if (hov && !active) {
-            Ui.rrect(g, x, y, w, h, 0x14FFFFFF, 5);
+            Ui.rrect(g, x, y, w, h, (0x14 << 24) | borderRgb, 5);
         }
-        Ui.ctext(g, f, label, x + w / 2, y + (h - f.lineHeight) / 2 + 1, active ? 0xFFFFFFFF : 0xFF8A94A6);
+        int onCol = lm ? 0xFF0F172A : 0xFFFFFFFF;
+        int offCol = lm ? 0xFF475569 : 0xFF8A94A6;
+        Ui.ctext(g, f, label, x + w / 2, y + (h - f.lineHeight) / 2 + 1, active || hov ? onCol : offCol);
     }
 
     /** Valor animado por chave (exponencial, independente de FPS). */
@@ -1627,11 +1728,14 @@ public class RShiftScreen extends Screen {
         return cur;
     }
 
-    private void drawSidebar(GuiGraphicsExtractor g, Font f) {
+    private void drawSidebar(GuiGraphicsExtractor g, Font f, boolean lm) {
         int sy = y0 + topH + 22;
         g.text(AstucyFonts.ui8(), "PROFILES", x0 + 12, sy - f.lineHeight - 4, 0xFF64748B, false);
+        int textOn = lm ? 0xFF0F172A : 0xFFFFFFFF;
+        int textOff = lm ? 0xFF475569 : 0xFF8A94A6;
+        int borderRgb = lm ? 0x0F172A : 0xFFFFFF;
 
-        // seleção de perfil com superfície tonal limpa e indicador esmeralda à esquerda (sem borda grossa)
+        // seleção de perfil com superfície tonal limpa e indicador esmeralda à esquerda
         for (int i = 0; i < PROFILES.length; i++) {
             int ry = sy + i * 22;
             boolean current = profile == i;
@@ -1639,8 +1743,8 @@ public class RShiftScreen extends Screen {
             float a = anim("prof:" + i, current ? 1f : (hov ? 0.45f : 0f), 14f);
             if (a > 0.01f) {
                 int pillCol = current
-                        ? Ui.mix(0xFF0E131B, 0xFF151C27, a)
-                        : (((int) (0x16 * a) << 24) | 0xFFFFFF);
+                        ? (lm ? 0xFFFFFFFF : Ui.mix(0xFF0E131B, 0xFF151C27, a))
+                        : (((int) (0x16 * a) << 24) | borderRgb);
                 Ui.rrect(g, x0 + 10, ry, sideW - 18, 18, pillCol, 5);
                 if (current) {
                     Ui.rrect(g, x0 + 12, ry + 4, 2, 10, 0xFF22C55E, 1);
@@ -1649,7 +1753,7 @@ public class RShiftScreen extends Screen {
             boolean editing = profEdit && profEditIdx == i;
             String shown = editing ? profBuf : AstucyConfig.profileName(i);
             g.text(f, shown, x0 + 18, ry + (18 - f.lineHeight) / 2 + 1,
-                    current || editing ? 0xFFFFFFFF : Ui.mix(0xFF8A94A6, 0xFFE2E8F0, a), false);
+                    current || editing ? textOn : Ui.mix(textOff, textOn, a * 0.6f), false);
             if (editing && (System.currentTimeMillis() / 500L) % 2L == 0L) {
                 Ui.rect(g, x0 + 18 + f.width(shown), ry + 4, 1, f.lineHeight, 0xFF22C55E);
             }
@@ -1661,13 +1765,13 @@ public class RShiftScreen extends Screen {
         boolean hh = inside((int) mx, (int) my, x0 + 10, by + 24, bw, 20);
         float sa = anim("sb1", sh ? 1f : 0f, 16f);
         boolean justSaved = System.currentTimeMillis() - savedStamp < 1200L;
-        int saveBg = justSaved ? 0x2E22C55E : Ui.mix(0xFF121721, 0xFF1A2230, sa);
+        int saveBg = justSaved ? 0x2E22C55E : Ui.mix(lm ? 0xFFF1F5F9 : 0xFF121721, lm ? 0xFFFFFFFF : 0xFF1A2230, sa);
         Ui.rrect(g, x0 + 10, by, bw, 20, saveBg, 6);
-        Ui.rframe(g, x0 + 10, by, bw, 20, justSaved ? 0x8822C55E : 0x16FFFFFF, 6);
+        Ui.rframe(g, x0 + 10, by, bw, 20, justSaved ? 0x8822C55E : ((0x16 << 24) | borderRgb), 6);
         Ui.ctext(g, f, justSaved ? "SAVED" : "SAVE PROFILE", x0 + 10 + bw / 2, by + (20 - f.lineHeight) / 2 + 1,
-                justSaved ? 0xFF4ADE80 : Ui.mix(0xFFCBD5E1, 0xFFFFFFFF, sa));
+                justSaved ? 0xFF22C55E : Ui.mix(textOff, textOn, 0.5f + sa * 0.5f));
 
-        // Botão primário sólido esmeralda para EDIT HUD (alto contraste, sem wireframe oco)
+        // Botão primário sólido esmeralda para EDIT HUD
         float hb = anim("sb2", hh ? 1f : 0f, 16f);
         int hudTop = Ui.mix(0xFF22C55E, 0xFF34D399, hb);
         int hudBot = Ui.mix(0xFF16A34A, 0xFF22C55E, hb);
@@ -1680,8 +1784,8 @@ public class RShiftScreen extends Screen {
         Font sf = AstucyFonts.ui8();
         int ty = y0 + ph - 42;
         if (ty > by + 50) {
-            Ui.rrect(g, x0 + 10, ty, sideW - 18, 32, 0xFF070A0F, 6);
-            Ui.rframe(g, x0 + 10, ty, sideW - 18, 32, 0x12FFFFFF, 6);
+            Ui.rrect(g, x0 + 10, ty, sideW - 18, 32, lm ? 0xFFF8FAFC : 0xFF070A0F, 6);
+            Ui.rframe(g, x0 + 10, ty, sideW - 18, 32, ((lm ? 0x20 : 0x12) << 24) | borderRgb, 6);
             int activeMods = 0;
             for (Module m : Modules.all()) {
                 if (m.enabled) {
@@ -1691,7 +1795,7 @@ public class RShiftScreen extends Screen {
             Skin.glow(g, x0 + 18, ty + 10, 9, 0x2222C55E);
             float miniAng = (float) ((System.currentTimeMillis() % 6000L) / 6000.0 * Math.PI * 2.0);
             Skin.logo(g, x0 + 18.5f, ty + 9.5f, 8.5f, miniAng, 0xFF22C55E);
-            g.text(sf, activeMods + " active", x0 + 26, ty + 5, 0xFFE2E8F0, false);
+            g.text(sf, activeMods + " active", x0 + 26, ty + 5, lm ? 0xFF0F172A : 0xFFE2E8F0, false);
             int fpsNow = Minecraft.getInstance().getFps();
             g.text(sf, fpsNow + " FPS  ·  v0.1", x0 + 16, ty + 18, 0xFF64748B, false);
         } else {
@@ -1699,7 +1803,10 @@ public class RShiftScreen extends Screen {
         }
     }
 
-    private void drawGrid(GuiGraphicsExtractor g, Font f) {
+    private void drawGrid(GuiGraphicsExtractor g, Font f, boolean lm) {
+        int borderRgb = lm ? 0x0F172A : 0xFFFFFF;
+        int offTxt = lm ? 0xFF475569 : 0xFF8A94A6;
+        int onTxt = lm ? 0xFF0F172A : 0xFFFFFFFF;
         // indicador da pill ativa — pílula sólida esmeralda que desliza sem contorno borrado
         int activeIdx = -1;
         for (int i = 0; i < pillCats.size(); i++) {
@@ -1717,7 +1824,7 @@ public class RShiftScreen extends Screen {
             boolean hov = inside((int) mx, (int) my, r[0], r[1], r[2], r[3]);
             float h = anim("ph:" + i, hov ? 1f : 0f, 16f);
             if (!active && h > 0.02f) {
-                Ui.rrect(g, r[0], r[1], r[2], r[3], ((int) (0x16 * h) << 24) | 0xFFFFFF, 5);
+                Ui.rrect(g, r[0], r[1], r[2], r[3], ((int) (0x16 * h) << 24) | borderRgb, 5);
             }
         }
         if (ar != null && iw > 2f) {
@@ -1739,15 +1846,15 @@ public class RShiftScreen extends Screen {
             } else {
                 float h = anim("ph:" + i, hov ? 1f : 0f, 16f);
                 Ui.ctext(g, f, label, r[0] + r[2] / 2, ly,
-                        Ui.mix(0xFF8A94A6, 0xFFFFFFFF, h));
+                        Ui.mix(offTxt, onTxt, h));
             }
         }
 
         List<Module> list = filtered();
         if (list.isEmpty()) {
-            Ui.icon(g, "search", cx + cw / 2 - 16, cy + 46, 32, 0x44FFFFFF);
-            Ui.ctext(g, f, "Nothing here", cx + cw / 2, cy + 88, Ui.DIM);
-            Ui.ctext(g, f, "try another filter or clear the search", cx + cw / 2, cy + 102, 0x55FFFFFF);
+            Ui.icon(g, "search", cx + cw / 2 - 16, cy + 46, 32, (0x44 << 24) | borderRgb);
+            Ui.ctext(g, f, "Nothing here", cx + cw / 2, cy + 88, offTxt);
+            Ui.ctext(g, f, "try another filter or clear the search", cx + cw / 2, cy + 102, (0x55 << 24) | borderRgb);
             return;
         }
 
@@ -1762,20 +1869,21 @@ public class RShiftScreen extends Screen {
             if (gy + cardH < gridY - 2 || gy > gridBottom) {
                 continue;
             }
-            drawCard(g, f, list.get(i), gx, gy, i);
+            drawCard(g, f, list.get(i), gx, gy, i, lm);
         }
         g.disableScissor();
 
         // fades suaves caso a lista esteja rolada
+        int fadeRgb = lm ? 0xF8FAFC : 0x070A0F;
         if (scrollY > 1f) {
             for (int i = 0; i < 6; i++) {
-                Ui.rect(g, cx, gridY + i, cw - 8, 1, (((int) (0x14 * (6 - i))) << 24) | 0x070A0F);
+                Ui.rect(g, cx, gridY + i, cw - 8, 1, (((int) (0x14 * (6 - i))) << 24) | fadeRgb);
             }
         }
         int max = maxScroll();
         if (max > 0 && scrollY < max - 2f) {
             for (int i = 0; i < 8; i++) {
-                Ui.rect(g, cx, gridBottom - 8 + i, cw - 8, 1, (((int) (0x14 * (i + 1))) << 24) | 0x070A0F);
+                Ui.rect(g, cx, gridBottom - 8 + i, cw - 8, 1, (((int) (0x14 * (i + 1))) << 24) | fadeRgb);
             }
         }
 
@@ -1789,12 +1897,13 @@ public class RShiftScreen extends Screen {
         }
     }
 
-    private void drawCard(GuiGraphicsExtractor g, Font f, Module m, int gx, int gy, int idx) {
+    private void drawCard(GuiGraphicsExtractor g, Font f, Module m, int gx, int gy, int idx, boolean lm) {
         boolean hov = inside((int) mx, (int) my, gx, gy, cardW, cardH);
         float h = anim("c:" + m.id, hov ? 1f : 0f, 16f);
         float on = anim("e:" + m.id, m.enabled ? 1f : 0f, 15f);
         Long pr = press.get(m.id);
         float flash = pr == null ? 0f : Math.max(0f, 1f - (System.currentTimeMillis() - pr) / 280f);
+        int borderRgb = lm ? 0x0F172A : 0xFFFFFF;
 
         // cascata suave ao abrir o menu ou trocar de categoria
         int row = idx / cols;
@@ -1805,15 +1914,19 @@ public class RShiftScreen extends Screen {
 
         int ly = gy + slideY - Math.round(1.0f * h);
 
-        // superfície escura bem definida + tom esmeralda profundo quando o módulo está ativo (sem borda vazada)
-        int topOff = Ui.mix(0xFF0E121A, 0xFF151B27, h);
-        int botOff = Ui.mix(0xFF0B0E15, 0xFF101620, h);
-        int topOn = Ui.mix(0xFF0E221A, 0xFF132C22, h);
-        int botOn = Ui.mix(0xFF0A1812, 0xFF0E2119, h);
+        int topOff = lm ? Ui.mix(0xFFF1F5F9, 0xFFFFFFFF, h) : Ui.mix(0xFF0E121A, 0xFF151B27, h);
+        int botOff = lm ? Ui.mix(0xFFE2E8F0, 0xFFF8FAFC, h) : Ui.mix(0xFF0B0E15, 0xFF101620, h);
+        int topOn = lm ? Ui.mix(0xFFECFDF5, 0xFFDCFCE7, h) : Ui.mix(0xFF0E221A, 0xFF132C22, h);
+        int botOn = lm ? Ui.mix(0xFFD1FAE5, 0xFFBBF7D0, h) : Ui.mix(0xFF0A1812, 0xFF0E2119, h);
         int cTop = Ui.mix(topOff, topOn, on);
         int cBot = Ui.mix(botOff, botOn, on);
-        if (!Skin.boxGrad(g, gx, ly, cardW, cardH, cTop, cBot, 7)) {
+        if (lm || !Skin.boxGrad(g, gx, ly, cardW, cardH, cTop, cBot, 7)) {
             Ui.rrect(g, gx, ly, cardW, cardH, cTop, 7);
+        }
+        if (on > 0.05f || h > 0.05f || lm) {
+            int brdA = on > 0.5f ? Math.round((lm ? 120f : 58f) + 48f * h) : Math.round((lm ? 22f : 0f) + 26f * h);
+            int brdCol = (brdA << 24) | (on > 0.5f ? 0x22C55E : borderRgb);
+            Ui.rframe(g, gx, ly, cardW, cardH, brdCol, 7);
         }
 
         // barra lateral esmeralda animada quando ativo
@@ -1826,20 +1939,22 @@ public class RShiftScreen extends Screen {
             Ui.rrect(g, gx + 2, barY, 2, barH, ((int) (0xFF * on) << 24) | 0x22C55E, 1);
         }
 
-        // poço escuro recuado para o ícone do módulo (esmeralda quando ativo)
+        // poço recuado para o ícone do módulo
         if (on > 0.04f) {
             Skin.glow(g, badgeX + badgeSz / 2, badgeY + badgeSz / 2, 16, (((int) (0x20 * on)) << 24) | 0x22C55E);
         }
+        int wellOff = lm ? Ui.mix(0xFFE2E8F0, 0xFFCBD5E1, h) : Ui.mix(0xFF07090E, 0xFF0B0E16, h);
         Ui.rrect(g, badgeX, badgeY, badgeSz, badgeSz,
-                Ui.mix(Ui.mix(0xFF07090E, 0xFF0B0E16, h), 0x2622C55E, on), 5);
+                Ui.mix(wellOff, 0x2622C55E, on), 5);
+        int icoOff = lm ? 0xFF475569 : Ui.mix(0xFF94A3B8, 0xFFE2E8F0, h);
         Ui.icon(g, m.id, badgeX + 5, badgeY + 5, 12,
-                Ui.mix(Ui.mix(0xFF94A3B8, 0xFFE2E8F0, h), 0xFF4ADE80, on));
+                Ui.mix(icoOff, lm ? 0xFF16A34A : 0xFF4ADE80, on));
 
-        // tipografia limpa em 2 linhas: Nome na linha 1, Descrição concisa (sem "...") na linha 2
+        // tipografia limpa em 2 linhas
         int textX = badgeX + badgeSz + 8;
         int titleY = ly + 7;
-        g.text(f, m.name, textX, titleY,
-                Ui.mix(0xFFF1F5F9, 0xFFFFFFFF, Math.max(on, h)), false);
+        int titleCol = lm ? 0xFF0F172A : Ui.mix(0xFFF1F5F9, 0xFFFFFFFF, Math.max(on, h));
+        g.text(f, m.name, textX, titleY, titleCol, false);
 
         Font sf = AstucyFonts.ui8();
         if (m.isNew && on < 0.3f) {
@@ -1847,41 +1962,44 @@ public class RShiftScreen extends Screen {
             int bw = sf.width("NEW") + 6;
             if (bx + bw < gx + cardW - 58) {
                 Ui.rrect(g, bx, titleY + 1, bw, sf.lineHeight + 2, 0x2222C55E, 3);
-                g.text(sf, "NEW", bx + 3, titleY + 2, 0xFF4ADE80, false);
+                g.text(sf, "NEW", bx + 3, titleY + 2, lm ? 0xFF16A34A : 0xFF4ADE80, false);
             }
         }
 
         String desc = m.description == null ? "" : m.description;
-        int subColor = Ui.mix(Ui.mix(0xFF64748B, 0xFF94A3B8, h), 0xFF6EE7B7, on * 0.85f);
+        int subOff = lm ? 0xFF64748B : Ui.mix(0xFF64748B, 0xFF94A3B8, h);
+        int subColor = Ui.mix(subOff, lm ? 0xFF16A34A : 0xFF6EE7B7, on * 0.85f);
         g.text(sf, desc, textX, ly + 21, subColor, false);
 
-        // botão de opções (18x18 em gx + cardW - 56, deixando 6px livres antes do switch)
+        // botão de opções
         int optX = gx + cardW - 56;
         int optY = ly + (cardH - 18) / 2;
         boolean gearHov = inside((int) mx, (int) my, optX - 2, ly + 4, 22, cardH - 8);
         float gh2 = anim("g:" + m.id, gearHov ? 1f : 0f, 16f);
         if (gh2 > 0.02f) {
-            Ui.rrect(g, optX, optY, 18, 18, ((int) (0x20 * gh2) << 24) | 0xFFFFFF, 5);
+            Ui.rrect(g, optX, optY, 18, 18, ((int) (0x20 * gh2) << 24) | borderRgb, 5);
         }
         Ui.icon(g, "options", optX + 4, ly + (cardH - 10) / 2, 10,
-                Ui.mix(0xFF64748B, 0xFFFFFFFF, Math.max(h * 0.45f, gh2)));
+                Ui.mix(0xFF64748B, lm ? 0xFF0F172A : 0xFFFFFFFF, Math.max(h * 0.45f, gh2)));
 
-        // switch de alto contraste (trilha preta profunda quando OFF, esmeralda vibrante quando ON)
+        // switch de alto contraste
         int sw = 26;
         int sh = 14;
         int sx = gx + cardW - sw - 8;
         int sy = ly + (cardH - sh) / 2;
+        int swOffTop = lm ? 0xFFCBD5E1 : 0xFF05070B;
+        int swOffBot = lm ? 0xFF94A3B8 : 0xFF040609;
         if (!Skin.boxGrad(g, sx, sy, sw, sh,
-                Ui.mix(0xFF05070B, 0xFF22C55E, on),
-                Ui.mix(0xFF040609, 0xFF16A34A, on), sh / 2)) {
-            Ui.rrect(g, sx, sy, sw, sh, Ui.mix(0xFF05070B, 0xFF22C55E, on), sh / 2);
+                Ui.mix(swOffTop, 0xFF22C55E, on),
+                Ui.mix(swOffBot, 0xFF16A34A, on), sh / 2)) {
+            Ui.rrect(g, sx, sy, sw, sh, Ui.mix(swOffTop, 0xFF22C55E, on), sh / 2);
         }
         if (on < 0.85f) {
-            Ui.rframe(g, sx, sy, sw, sh, Ui.mix(0x24FFFFFF, 0x00FFFFFF, on), sh / 2);
+            Ui.rframe(g, sx, sy, sw, sh, Ui.mix(((0x24 << 24) | borderRgb), 0x00FFFFFF, on), sh / 2);
         }
         int kr = sh - 4;
         int kx = sx + 2 + Math.round((sw - 4 - kr) * on);
-        int knobCol = Ui.mix(Ui.mix(0xFF64748B, 0xFF94A3B8, h), 0xFFFFFFFF, on);
+        int knobCol = Ui.mix(lm ? 0xFFFFFFFF : Ui.mix(0xFF64748B, 0xFF94A3B8, h), 0xFFFFFFFF, on);
         Skin.disc(g, kx, sy + 2, kr, knobCol);
 
         // pulso sutil ao clicar no card
@@ -2098,6 +2216,14 @@ public class RShiftScreen extends Screen {
     private String rowLabel(int i) {
         int s = styleRows();
         if (s > 0 && i < s) {
+            if (i == 6 && option != null) {
+                if ("armor".equals(option.id)) {
+                    return "Percentage (%)";
+                }
+                if ("healthtag".equals(option.id)) {
+                    return "Show hearts";
+                }
+            }
             return OPT_ROWS[i];
         }
         Row r = modRow(i);
@@ -2175,5 +2301,218 @@ public class RShiftScreen extends Screen {
         }
         g.disableScissor();
         g.text(f, mods.size() + " mods loaded by Fabric", cx + 8, cy + ch - 14, Ui.DIM, false);
+    }
+
+    private void drawSettingsTab(GuiGraphicsExtractor g, Font f, boolean lm) {
+        int textOn = lm ? 0xFF0F172A : 0xFFFFFFFF;
+        int textMuted = lm ? 0xFF475569 : 0xFF8A94A6;
+        int borderRgb = lm ? 0x0F172A : 0xFFFFFF;
+        g.text(AstucyFonts.bold(), "CLIENT & ENGINE SETTINGS", cx + 6, cy + 2, 0xFF22C55E, false);
+        String[][] rows = {
+            {"Edit HUD Layout", "Move, scale and restyle every chip", "EDIT HUD"},
+            {"Minecraft Video & Options", "FOV, Render Distance, FPS Limit, Shaders", "OPEN"},
+            {"Reset HUD Positions", "Restore factory layout for active profile", "RESET"},
+            {"Restore Default PvP Preset", "Enable the 4 default Astucy modules", "APPLY"}
+        };
+        for (int i = 0; i < rows.length; i++) {
+            int ry = cy + 22 + i * 38;
+            boolean hov = inside((int) mx, (int) my, cx, ry, cw, 32);
+            if (hov) {
+                Ui.rrect(g, cx, ry, cw, 32, (0x16 << 24) | borderRgb, 7);
+                Ui.rrect(g, cx + 2, ry + 5, 2, 22, 0xFF38C975, 1);
+            }
+            g.text(f, rows[i][0], cx + 12, ry + 4, textOn, false);
+            g.text(AstucyFonts.ui8(), rows[i][1], cx + 12, ry + 18, textMuted, false);
+            int bx = cx + cw - 110;
+            Ui.rrect(g, bx, ry + 5, 102, 22, hov ? 0x3A22C55E : ((0x16 << 24) | borderRgb), 6);
+            Ui.rframe(g, bx, ry + 5, 102, 22, hov ? 0x9922C55E : ((0x22 << 24) | borderRgb), 6);
+            Ui.ctext(g, f, rows[i][2], bx + 51, ry + (22 - f.lineHeight) / 2 + 6, textOn);
+        }
+    }
+
+    private boolean clickSettingsTab(int px, int py) {
+        for (int i = 0; i < 4; i++) {
+            int ry = cy + 22 + i * 38;
+            if (inside(px, py, cx, ry, cw, 32)) {
+                switch (i) {
+                    case 0 -> {
+                        AstucyConfig.save();
+                        minecraft.gui.setScreen(new HudEditorScreen());
+                    }
+                    case 1 -> {
+                        AstucyConfig.save();
+                        minecraft.gui.setScreen(new ClientSettingsScreen(this));
+                    }
+                    case 2 -> Modules.resetPositions();
+                    default -> Modules.resetPreset();
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private int crosshairCell() {
+        return Math.max(8, Math.min(11, (ch - 70) / 17));
+    }
+
+    private void drawCrosshairOptions(GuiGraphicsExtractor g, Font f, boolean lm) {
+        Module m = option;
+        int textOn = lm ? 0xFF0F172A : 0xFFFFFFFF;
+        int textMuted = lm ? 0xFF475569 : 0xFF8A94A6;
+        int borderRgb = lm ? 0x0F172A : 0xFFFFFF;
+        Ui.icon(g, m.id, cx + 2, cy, 16, 0xFF4ADE80);
+        g.text(AstucyFonts.midBold(), m.name, cx + 24, cy, textOn, false);
+        g.text(AstucyFonts.ui8(), m.description, cx + 24, cy + f.lineHeight + 2, textMuted, false);
+
+        int cell = crosshairCell();
+        int gridPx = 17 * cell;
+        int gx0 = cx + 8;
+        int gy0 = cy + 36;
+        Ui.rrect(g, gx0 - 4, gy0 - 4, gridPx + 8, gridPx + 8, lm ? 0xFFE2E8F0 : 0xFF04060A, 7);
+        Ui.rframe(g, gx0 - 4, gy0 - 4, gridPx + 8, gridPx + 8, (0x20 << 24) | borderRgb, 7);
+
+        boolean invert = AstucyConfig.isCrosshairInvert();
+        int pixCol = invert ? (lm ? 0xFF0F172A : 0xFFFFFFFF) : (0xFF000000 | (m.fgColor & 0xFFFFFF));
+        long[] rows = AstucyConfig.crosshairRows();
+        for (int py = 0; py < 17; py++) {
+            long row = rows[py];
+            for (int px = 0; px < 17; px++) {
+                int xc = gx0 + px * cell;
+                int yc = gy0 + py * cell;
+                boolean center = px == 8 || py == 8;
+                boolean hov = inside((int) mx, (int) my, xc, yc, cell, cell);
+                boolean on = ((row >> px) & 1L) != 0L;
+                int bgCell = on ? pixCol
+                        : hov ? 0x5A22C55E
+                        : (px == 8 && py == 8) ? 0x2422C55E
+                        : center ? ((0x14 << 24) | borderRgb)
+                        : ((px + py) % 2 == 0) ? (lm ? 0xFFF1F5F9 : 0xFF0E131B) : (lm ? 0xFFE2E8F0 : 0xFF0A0E15);
+                Ui.rect(g, xc, yc, cell - 1, cell - 1, bgCell);
+            }
+        }
+        g.text(AstucyFonts.ui8(), "Left-click/drag: Paint  ·  Right-click/drag: Erase",
+                gx0, gy0 + gridPx + 6, textMuted, false);
+
+        int rx = gx0 + gridPx + 18;
+        int rw = Math.max(150, cx + cw - rx - 8);
+        g.text(AstucyFonts.ui8(), "LIVE PREVIEW (1:1)", rx, gy0 - 2, textMuted, false);
+        int prevY = gy0 + 12;
+        Ui.rrect(g, rx, prevY, 54, 54, 0xFF0B0F17, 6);
+        Ui.rect(g, rx + 27, prevY + 1, 26, 52, 0x28CBD5E1);
+        Ui.rframe(g, rx, prevY, 54, 54, (0x20 << 24) | borderRgb, 6);
+        int pcx = rx + 27;
+        int pcy = prevY + 27;
+        for (int py = 0; py < 17; py++) {
+            long row = rows[py];
+            for (int px = 0; px < 17; px++) {
+                if (((row >> px) & 1L) != 0L) {
+                    int ox = pcx + px - 8;
+                    int oy = pcy + py - 8;
+                    if (m.shadow) {
+                        Ui.rect(g, ox - 1, oy - 1, 3, 3, 0xDC000000);
+                    }
+                    Ui.rect(g, ox, oy, 1, 1, pixCol);
+                }
+            }
+        }
+
+        g.text(AstucyFonts.ui8(), "PRESETS", rx, prevY + 62, textMuted, false);
+        String[] presets = {"Cross", "Dot", "Gap", "X", "Clear"};
+        int prW = Math.max(24, (rw - 16) / 5);
+        int prY = prevY + 74;
+        for (int pi = 0; pi < presets.length; pi++) {
+            int bxp = rx + pi * (prW + 4);
+            boolean phov = inside((int) mx, (int) my, bxp, prY, prW, 18);
+            Ui.rrect(g, bxp, prY, prW, 18, phov ? ((0x2C << 24) | borderRgb) : ((0x14 << 24) | borderRgb), 5);
+            Ui.ctext(g, AstucyFonts.ui8(), presets[pi], bxp + prW / 2, prY + 5, textOn);
+        }
+
+        int invY = prevY + 100;
+        g.text(f, "Invert Color", rx, invY + 2, textOn, false);
+        Ui.toggle(g, rx + rw - 38, invY, 36, 16, invert, toggleAnim("ch_inv", invert));
+
+        int outY = invY + 24;
+        g.text(f, "Outline", rx, outY + 2, textOn, false);
+        Ui.toggle(g, rx + rw - 38, outY, 36, 16, m.shadow, toggleAnim("ch_out", m.shadow));
+
+        int swY = outY + 26;
+        g.text(AstucyFonts.ui8(), "COLOR", rx, swY, textMuted, false);
+        int pitch = Math.min(18, Math.max(12, rw / Module.SWATCHES.length));
+        for (int s = 0; s < Module.SWATCHES.length; s++) {
+            Ui.swatch(g, rx + s * pitch, swY + 12, pitch - 3, Module.SWATCHES[s],
+                    !invert && (m.fgColor & 0xFFFFFF) == (Module.SWATCHES[s] & 0xFFFFFF));
+        }
+
+        int by = cy + ch - 26;
+        boolean h1 = inside((int) mx, (int) my, cx, by, 136, 18);
+        boolean h2 = inside((int) mx, (int) my, cx + 146, by, 136, 18);
+        Ui.rrect(g, cx, by, 136, 18, Ui.mix((0x1E << 24) | borderRgb, (0x34 << 24) | borderRgb, anim("ob1", h1 ? 1f : 0f, 16f)));
+        Ui.ctext(g, f, "RESET STYLE", cx + 68, by + 5, textOn);
+        Ui.rrect(g, cx + 146, by, 136, 18, Ui.mix((0x1E << 24) | borderRgb, (0x34 << 24) | borderRgb, anim("ob2", h2 ? 1f : 0f, 16f)));
+        Ui.ctext(g, f, "BACK", cx + 146 + 68, by + 5, textOn);
+    }
+
+    private boolean clickCrosshairOptions(int px, int py, boolean right) {
+        int cell = crosshairCell();
+        int gridPx = 17 * cell;
+        int gx0 = cx + 8;
+        int gy0 = cy + 36;
+        if (inside(px, py, gx0, gy0, gridPx, gridPx)) {
+            int cpx = (px - gx0) / cell;
+            int cpy = (py - gy0) / cell;
+            crosshairPaint = !right;
+            AstucyConfig.setCrosshairPixel(cpx, cpy, crosshairPaint);
+            return true;
+        }
+        int rx = gx0 + gridPx + 18;
+        int rw = Math.max(150, cx + cw - rx - 8);
+        int prevY = gy0 + 12;
+        String[] presets = {"Cross", "Dot", "Gap", "X", "Clear"};
+        int prW = Math.max(24, (rw - 16) / 5);
+        int prY = prevY + 74;
+        if (py >= prY && py < prY + 18) {
+            for (int pi = 0; pi < presets.length; pi++) {
+                int bxp = rx + pi * (prW + 4);
+                if (px >= bxp && px < bxp + prW) {
+                    AstucyConfig.applyCrosshairPreset(presets[pi]);
+                    return true;
+                }
+            }
+        }
+        int invY = prevY + 100;
+        if (inside(px, py, rx, invY, rw, 20)) {
+            AstucyConfig.setCrosshairInvert(!AstucyConfig.isCrosshairInvert());
+            return true;
+        }
+        int outY = invY + 24;
+        if (inside(px, py, rx, outY, rw, 20)) {
+            option.shadow = !option.shadow;
+            AstucyConfig.save();
+            return true;
+        }
+        int swY = outY + 26;
+        int pitch = Math.min(18, Math.max(12, rw / Module.SWATCHES.length));
+        if (px >= rx && px < rx + Module.SWATCHES.length * pitch && py >= swY + 12 && py < swY + 12 + pitch) {
+            int si = clamp((px - rx) / pitch, 0, Module.SWATCHES.length - 1);
+            AstucyConfig.setCrosshairInvert(false);
+            option.fgColor = Module.SWATCHES[si];
+            AstucyConfig.save();
+            return true;
+        }
+        int by = cy + ch - 26;
+        if (inside(px, py, cx, by, 136, 18)) {
+            AstucyConfig.resetCrosshair();
+            option.resetStyle();
+            AstucyConfig.save();
+            return true;
+        }
+        if (inside(px, py, cx + 146, by, 136, 18)) {
+            option = null;
+            optScroll = 0;
+            optScrollTarget = 0;
+            return true;
+        }
+        return true;
     }
 }

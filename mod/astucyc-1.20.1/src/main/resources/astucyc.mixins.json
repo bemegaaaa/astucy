@@ -1,0 +1,34 @@
+{
+  "required": true,
+  "minVersion": "0.8.7",
+  "package": "com.astucy.client.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "client": [
+    "KeyboardInputMixin",
+    "PlayerHealthMixin",
+    "ViewmodelMixin",
+    "LoadingOverlayMixin",
+    "LevelLoadingScreenMixin",
+    "TitleScreenMixin",
+    "PauseScreenMixin",
+    "LogoRendererMixin",
+    "SplashRendererMixin",
+    "ScreenshotGrabMixin",
+    "ButtonStyleMixin",
+    "HudEffectsMixin",
+    "ChatComponentMixin",
+    "ChatScreenSearchMixin",
+    "CameraFovMixin",
+    "ScreenInvoker",
+    "ChatComponentAccessor",
+    "MinecraftAccessor",
+    "FontManagerAccessor",
+    "FontSetAccessor",
+    "AbstractTextureMixin",
+    "FontTextureMixin",
+    "NativeImageFontMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

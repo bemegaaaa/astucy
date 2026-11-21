@@ -114,6 +114,7 @@ public final class Modules {
         add(new Module("ambience", "Ambience Tint", "Screen color tint", ModuleCategory.VISAO, false).isNew());
         add(new Module("menublur", "Menu Glass FX", "Glass & spotlight", ModuleCategory.VISAO, false).isNew());
         add(new Module("crosshair", "Crosshair", "Custom crosshair", ModuleCategory.VISAO, false).isNew());
+        add(new Module("cit", "CIT Resewn (CIT)", "OptiFine custom item textures", ModuleCategory.VISAO, false).isNew());
         // Extras de HUD (desenho próprio, sem mixin)
         add(new Module("watermark", "Watermark", "Client watermark", ModuleCategory.INFORMACAO, true)
                 .at(0.5, 0.955).isNew());
@@ -122,11 +123,8 @@ public final class Modules {
         add(new Module("realtime", "Real Time", "Local time clock", ModuleCategory.INFORMACAO, true)
                 .at(0.845, 0.56).isNew());
 
-        // preset de fábrica (espelha o que um client de PvP liga de cara)
-        for (String id : new String[]{
-                "fps", "ping", "coords", "cps", "keystrokes", "armor", "health",
-                "direcao", "efeitos", "zoom", "hurtcam", "sprint", "healthtag",
-                "blur", "speedfx", "menublur"}) {
+        // preset de fábrica (1:1 com Rust: sprint, fps, ping, cps, cit)
+        for (String id : new String[]{"sprint", "fps", "ping", "cps", "cit"}) {
             Module m = find(id);
             if (m != null) {
                 m.enabled = true;
@@ -576,55 +574,33 @@ public final class Modules {
                 mainCol, accCol);
     }
 
-    /** Mira customizada anti-aliased com expansão dinâmica opcional. */
-    private static float crosshairSpread = 0f;
-
+    /** Mira customizada 17x17 em pixel-art configurável no menu R-SHIFT (1:1 com Rust). */
     private static void drawCrosshair(GuiGraphicsExtractor g, Minecraft mc, Module m, int cx, int cy) {
-        boolean dot = m.boolProp("dot", true);
-        boolean cross = m.boolProp("cross", true);
-        boolean ring = m.boolProp("ring", false);
-        boolean dynamic = m.boolProp("dynamic", true);
-        boolean hitColor = m.boolProp("hitcolor", true);
-        int size = (int) Math.max(2, Math.min(12, Math.round(m.numProp("size", 4))));
-        int gap = (int) Math.max(1, Math.min(10, Math.round(m.numProp("gap", 3))));
+        long[] rows = com.astucy.client.config.AstucyConfig.crosshairRows();
+        boolean invert = com.astucy.client.config.AstucyConfig.isCrosshairInvert();
+        boolean outline = m.shadow;
+        int col = invert ? 0xEBE2FFF4 : m.fgColor;
+        int outCol = 0xD804060A;
 
-        float targetSpread = 0f;
-        if (dynamic && mc.player != null) {
-            if (mc.options.keyAttack.isDown()) {
-                targetSpread += 2.5f;
+        if (outline) {
+            for (int py = 0; py < 17; py++) {
+                long row = rows[py];
+                if (row == 0L) continue;
+                for (int px = 0; px < 17; px++) {
+                    if (((row >> px) & 1L) == 0L) continue;
+                    int x = cx - 8 + px;
+                    int y = cy - 8 + py;
+                    Ui.rect(g, x - 1, y - 1, 3, 3, outCol);
+                }
             }
-            if (!mc.player.onGround()) {
-                targetSpread += 2.0f;
-            } else if (mc.player.isSprinting()) {
-                targetSpread += 1.2f;
+        }
+        for (int py = 0; py < 17; py++) {
+            long row = rows[py];
+            if (row == 0L) continue;
+            for (int px = 0; px < 17; px++) {
+                if (((row >> px) & 1L) == 0L) continue;
+                Ui.rect(g, cx - 8 + px, cy - 8 + py, 1, 1, col);
             }
-        }
-        crosshairSpread += (targetSpread - crosshairSpread) * 0.25f;
-        int effGap = gap + Math.round(crosshairSpread);
-
-        boolean hasTarget = mc.crosshairPickEntity instanceof LivingEntity le && le != mc.player && le.isAlive();
-        int col = (hitColor && hasTarget) ? 0xFFFF4D5A : m.fgColor;
-        int shadowCol = 0x88000000;
-
-        if (ring) {
-            int r = effGap + size;
-            Ui.rframe(g, cx - r, cy - r, r * 2, r * 2, (col & 0x00FFFFFF) | 0xAA000000, r);
-        }
-        if (dot) {
-            com.astucy.client.ui.Skin.disc(g, cx - 1, cy - 1, 3, shadowCol);
-            com.astucy.client.ui.Skin.disc(g, cx - 1, cy - 1, 2, col);
-        }
-        if (cross) {
-            // Sombra sutil + traços nítidos
-            Ui.rect(g, cx - effGap - size, cy, size, 2, shadowCol);
-            Ui.rect(g, cx + effGap, cy, size, 2, shadowCol);
-            Ui.rect(g, cx, cy - effGap - size, 2, size, shadowCol);
-            Ui.rect(g, cx, cy + effGap, 2, size, shadowCol);
-
-            Ui.rect(g, cx - effGap - size, cy, size, 1, col);
-            Ui.rect(g, cx + effGap, cy, size, 1, col);
-            Ui.rect(g, cx, cy - effGap - size, 1, size, col);
-            Ui.rect(g, cx, cy + effGap, 1, size, col);
         }
     }
 
@@ -763,7 +739,7 @@ public final class Modules {
     private static final int GRAPH_SAMPLES = 96;
     private static final Deque<Integer> FPS_HIST = new ArrayDeque<>();
 
-    /** Marca do client: ponto verde anti-aliased + "ASTUCY" + versão miúda. */
+    /** Marca do client: mini logo Íris girando + "ASTUCY" + "0.1" (1:1 com Rust). */
     private static void drawWatermark(GuiGraphicsExtractor g, Font font, Module m, int x, int y) {
         var pose = g.pose();
         pose.pushMatrix();
@@ -775,15 +751,16 @@ public final class Modules {
         String ver = "0.1";
         int mw = bFont.width(mark);
         int h = font.lineHeight + 6;
-        int w = 14 + mw + 5 + font.width(ver) + 6;
+        int w = 18 + mw + 4 + font.width(ver) + 6;
 
         if (m.bg) {
             chipBg(g, 0, 0, w, h, m.bgColor);
         }
-        com.astucy.client.ui.Skin.disc(g, 5, h / 2 - 2, 4, Ui.GREEN);
-        softText(g, bFont, mark, 13, 3, m.fgColor, m.shadow);
-        int dim = (m.fgColor & 0xFFFFFF) | 0x88000000;
-        g.text(font, ver, 13 + mw + 4, 3, dim, false);
+        float spin = (float) ((System.currentTimeMillis() % 7400L) / 7400.0 * Math.PI * 2.0);
+        com.astucy.client.ui.Skin.logo(g, 9f, h / 2f, 10f, spin, Ui.GREEN);
+        softText(g, bFont, mark, 17, 3, m.fgColor, m.shadow);
+        int dim = (m.fgColor & 0xFFFFFF) | 0x8E000000;
+        g.text(font, ver, 17 + mw + 4, 3, dim, false);
         pose.popMatrix();
     }
 
@@ -1112,7 +1089,7 @@ public final class Modules {
         if (m.id.equals("watermark")) {
             Font bFont = com.astucy.client.AstucyFonts.bold();
             int mw = bFont.width("ASTUCY");
-            int w = 14 + mw + 5 + font.width("0.1") + 6;
+            int w = 18 + mw + 4 + font.width("0.1") + 6;
             return new int[]{(int) Math.round(w * m.scale),
                     (int) Math.round((font.lineHeight + 6) * m.scaleY)};
         }
@@ -1246,18 +1223,16 @@ public final class Modules {
     private static List<ItemStack> armorRows(Module m, Minecraft mc) {
         List<ItemStack> rows = new ArrayList<>();
         if (preview) {
-            // prévia: espada na mão + dima full (durabilidade cheia)
-            rows.add(new ItemStack(Items.DIAMOND_SWORD));
-            rows.add(new ItemStack(Items.DIAMOND_HELMET));
-            rows.add(new ItemStack(Items.DIAMOND_CHESTPLATE));
-            rows.add(new ItemStack(Items.DIAMOND_LEGGINGS));
-            rows.add(new ItemStack(Items.DIAMOND_BOOTS));
+            rows.add(previewPiece(Items.DIAMOND_HELMET, 1.0f));
+            rows.add(previewPiece(Items.DIAMOND_CHESTPLATE, 0.75f));
+            rows.add(previewPiece(Items.DIAMOND_LEGGINGS, 0.44f));
+            rows.add(previewPiece(Items.DIAMOND_BOOTS, 0.12f));
             return rows;
         }
         if (mc.player == null) {
             return rows;
         }
-        if (m.boolProp("hand", true)) {
+        if (m.boolProp("hand", false)) {
             ItemStack hand = mc.player.getMainHandItem();
             if (!hand.isEmpty()) {
                 rows.add(hand);
@@ -1279,50 +1254,66 @@ public final class Modules {
         return rows;
     }
 
-    /** Durabilidade restante, max/restante ou contagem — conforme as opções. */
+    private static ItemStack previewPiece(net.minecraft.world.item.Item item, float ratio) {
+        ItemStack st = new ItemStack(item);
+        if (st.isDamageableItem() && ratio < 0.999f) {
+            st.setDamageValue(Math.round(st.getMaxDamage() * (1f - ratio)));
+        }
+        return st;
+    }
+
+    private static float durRatio(ItemStack s) {
+        if (!s.isDamageableItem()) {
+            return 1f;
+        }
+        int max = Math.max(1, s.getMaxDamage());
+        return Math.max(0f, Math.min(1f, (max - s.getDamageValue()) / (float) max));
+    }
+
+    /** Porcentagem ("100%") quando m.prefix == true ("Percentage (%)"), ou número restante. */
     private static String durText(ItemStack s, Module m) {
         if (s.isDamageableItem()) {
+            if (m.prefix) {
+                return Math.round(durRatio(s) * 100f) + "%";
+            }
             int left = Math.max(0, s.getMaxDamage() - s.getDamageValue());
             return m.boolProp("maxdur", false) ? left + "/" + s.getMaxDamage() : String.valueOf(left);
         }
         return m.boolProp("count", true) ? String.valueOf(s.getCount()) : "";
     }
 
-    /**
-     * Cor pelo estado da peça: verde (cheia) → amarelo → laranja → vermelho.
-     * Abaixo do limite escolhido, pisca para chamar atenção.
-     */
+    /** 5 faixas de cor idênticas ao Rust (0x4ADE80 → 0xA3E635 → 0xFACC15 → 0xFB923C → 0xEF4444). */
     private static int durColor(ItemStack s, Module m) {
         if (!s.isDamageableItem() || !m.boolProp("dmgcolor", true)) {
             return m.fgColor;
         }
-        int max = Math.max(1, s.getMaxDamage());
-        float left = (max - s.getDamageValue()) / (float) max;
+        float left = durRatio(s);
         int rgb;
-        if (left > 0.60f) {
-            rgb = 0x6FE3A2;
-        } else if (left > 0.35f) {
-            rgb = 0xFFE066;
+        if (left > 0.75f) {
+            rgb = 0x4ADE80;
+        } else if (left > 0.50f) {
+            rgb = 0xA3E635;
+        } else if (left > 0.30f) {
+            rgb = 0xFACC15;
         } else if (left > 0.15f) {
-            rgb = 0xFFB454;
+            rgb = 0xFB923C;
         } else {
-            rgb = 0xFFFF5D5D;
+            rgb = 0xEF4444;
         }
         int alpha = 0xFF;
         int threshold = (int) Math.round(m.numProp("lowpct", 20));
         if (m.boolProp("lowwarn", true) && left * 100f <= threshold) {
-            rgb = 0xFFFF5D5D;
-            alpha = (System.currentTimeMillis() / 280) % 2 == 0 ? 0xFF : 0x66;
+            alpha = (System.currentTimeMillis() / 280) % 2 == 0 ? 0xFF : 0x77;
         }
         return (alpha << 24) | rgb;
     }
 
-    private static int armorWidth(Font font, List<ItemStack> rows, Module m) {
-        int w = 0;
+    private static int armorBoxW(Font font, List<ItemStack> rows, Module m) {
+        int textW = 0;
         for (ItemStack s : rows) {
-            w = Math.max(w, font.width(durText(s, m)));
+            textW = Math.max(textW, font.width(durText(s, m)));
         }
-        return w + 3 + 16;
+        return Math.max(66, 26 + textW + 10);
     }
 
     private static void drawArmor(GuiGraphicsExtractor g, Font font, Module m, int x, int y, Minecraft mc) {
@@ -1330,31 +1321,29 @@ public final class Modules {
         if (rows.isEmpty()) {
             return;
         }
-        int textW = armorWidth(font, rows, m) - 19;
-        int rowH = 17;
-        int cw = textW + 3 + 16;
-        int ch = rows.size() * rowH - 1;
-        boolean left = m.boolProp("durleft", true);
+        int cw = armorBoxW(font, rows, m);
+        int rowH = 18;
+        int ch = rows.size() * rowH + 6;
         var pose = g.pose();
         pose.pushMatrix();
         pose.translate((float) x, (float) y);
         pose.scale((float) m.scale, (float) m.scaleY);
         if (m.bg) {
-            // mesmo fundo do chip comum: cantos suaves + fio de 1px
-            chipBg(g, 0, 0, cw + 6, ch + 4, m.bgColor);
+            chipBg(g, 0, 0, cw, ch, m.bgColor);
         }
+        int leftPad = 24;
+        int barW = Math.max(16, cw - leftPad - 6);
         for (int i = 0; i < rows.size(); i++) {
             ItemStack s = rows.get(i);
-            int ry = 2 + i * rowH;
+            int ry = 3 + i * rowH;
             String t = durText(s, m);
+            float pct = durRatio(s);
             int color = durColor(s, m);
-            if (left) {
-                softText(g, font, t, 3, ry + 5, color, m.shadow);
-                g.item(s, 3 + textW + 3, ry);
-            } else {
-                softText(g, font, t, 3 + textW - font.width(t), ry + 5, color, m.shadow);
-                g.item(s, 3, ry);
-            }
+            g.item(s, 4, ry + 1);
+            softText(g, font, t, leftPad, ry + 2, color, m.shadow);
+            Ui.rrect(g, leftPad, ry + rowH - 4, barW, 2, 0x22FFFFFF, 1);
+            int fillW = Math.max(1, Math.round(barW * pct));
+            Ui.rrect(g, leftPad, ry + rowH - 4, fillW, 2, (0xE8 << 24) | (color & 0xFFFFFF), 1);
         }
         pose.popMatrix();
     }
@@ -1469,52 +1458,84 @@ public final class Modules {
         return visible ? m.fgColor : (m.fgColor & 0x00FFFFFF) | 0x66000000;
     }
 
+    private static String potTitle(MobEffectInstance e, Module m) {
+        String path = e.getEffect().unwrapKey().map(k -> k.identifier().getPath()).orElse("effect");
+        String n = potShortName(path);
+        if (n == null) {
+            n = path.replace('_', ' ');
+            n = Character.toUpperCase(n.charAt(0)) + n.substring(1);
+        }
+        if (m.boolProp("uppercase", false)) {
+            n = n.toUpperCase(java.util.Locale.ROOT);
+        }
+        int amp = e.getAmplifier();
+        if (m.boolProp("amplifier", true) && amp > 0) {
+            n += " " + romanNum(amp + 1);
+        }
+        return n;
+    }
+
+    private static String potDuration(MobEffectInstance e, Module m) {
+        if (!m.boolProp("duration", true)) {
+            return "";
+        }
+        int dur = e.getDuration();
+        if (dur < 0) {
+            return "**:**";
+        }
+        int total = dur / 20;
+        return String.format(java.util.Locale.ROOT, "%d:%02d", total / 60, total % 60);
+    }
+
+    private static String romanNum(int v) {
+        return switch (v) {
+            case 1 -> "I";
+            case 2 -> "II";
+            case 3 -> "III";
+            case 4 -> "IV";
+            case 5 -> "V";
+            default -> Integer.toString(v);
+        };
+    }
+
+    private static int potCardW(Font font, List<MobEffectInstance> rows, Module m) {
+        int maxW = 76;
+        for (MobEffectInstance e : rows) {
+            int nw = font.width(potTitle(e, m));
+            int dw = font.width(potDuration(e, m));
+            maxW = Math.max(maxW, nw + dw + 26);
+        }
+        return maxW;
+    }
+
     private static void drawPotions(GuiGraphicsExtractor g, Font font, Module m, int x, int y, Minecraft mc) {
         List<MobEffectInstance> rows = effectRows(m, mc);
         if (rows.isEmpty()) {
             return;
         }
-        int tw = 0;
-        float ts = m.boolProp("small", false) ? 0.75f : 1f;
-        for (MobEffectInstance e : rows) {
-            tw = Math.max(tw, Math.round(font.width(potText(e, m)) * ts));
-        }
-        boolean icons = m.boolProp("icons", true);
-        boolean textRight = m.boolProp("textright", true);
-        int iconW = icons ? 18 : 0;
-        int gap = icons && tw > 0 ? 2 : 0;
+        int cw = potCardW(font, rows, m);
+        int rowH = 14;
+        int ch = rows.size() * rowH + 6;
         var pose = g.pose();
         pose.pushMatrix();
         pose.translate((float) x, (float) y);
         pose.scale((float) m.scale, (float) m.scaleY);
-        int rowH = 18;
-        int cw = 3 + iconW + gap + tw;
         if (m.bg) {
-            chipBg(g, 0, 0, cw + 6, rows.size() * rowH + 2, m.bgColor);
+            chipBg(g, 0, 0, cw, ch, m.bgColor);
         }
+        int fgA = (m.fgColor >>> 24) & 0xFF;
+        int preA = Math.max(0x40, Math.round(fgA * 0.72f));
+        int preCol = (preA << 24) | (m.fgColor & 0x00FFFFFF);
         for (int i = 0; i < rows.size(); i++) {
             MobEffectInstance e = rows.get(i);
-            int ry = 2 + i * rowH;
-            int ix = textRight ? 3 : 3 + tw + gap;
-            int tx = textRight ? 3 + iconW + gap : 3;
-            if (icons) {
-                String id = e.getEffect().unwrapKey().map(k -> k.identifier().getPath()).orElse("speed");
-                try {
-                    g.blitSprite(RenderPipelines.GUI_TEXTURED,
-                            Identifier.withDefaultNamespace("mob_effect/" + id), ix, ry, 18, 18);
-                } catch (Throwable ignored) {
-                    Ui.rect(g, ix, ry, 18, 18, 0x40FFFFFF);
-                }
-            }
-            String ptxt = potText(e, m);
-            if (ts == 1f) {
-                softText(g, font, ptxt, tx, ry + 5, potColor(e, m), m.shadow);
-            } else {
-                pose.pushMatrix();
-                pose.translate((float) tx, (float) (ry + 5 + (font.lineHeight - font.lineHeight * ts) / 2f));
-                pose.scale(ts, ts);
-                softText(g, font, ptxt, 0, 0, potColor(e, m), m.shadow);
-                pose.popMatrix();
+            int ry = 3 + i * rowH;
+            com.astucy.client.ui.Skin.disc(g, 5, ry + 4, 4, 0xE622C55E);
+            String title = potTitle(e, m);
+            String dur = potDuration(e, m);
+            softText(g, font, title, 13, ry + 2, potColor(e, m), m.shadow);
+            if (!dur.isEmpty()) {
+                int dw = font.width(dur);
+                softText(g, font, dur, cw - 6 - dw, ry + 2, preCol, m.shadow);
             }
         }
         pose.popMatrix();
@@ -1526,19 +1547,64 @@ public final class Modules {
         if (m.id.equals("armor")) {
             List<ItemStack> rows = armorRows(m, mc);
             return rows.isEmpty() ? new int[]{0, 0}
-                    : new int[]{armorWidth(font, rows, m) + 6, rows.size() * 17 + 3};
+                    : new int[]{armorBoxW(font, rows, m), rows.size() * 18 + 6};
         }
         List<MobEffectInstance> rows = effectRows(m, mc);
         if (rows.isEmpty()) {
             return new int[]{0, 0};
         }
-        int tw = 0;
-        for (MobEffectInstance e : rows) {
-            tw = Math.max(tw, font.width(potText(e, m)));
+        return new int[]{potCardW(font, rows, m), rows.size() * 14 + 6};
+    }
+
+    public static void resetPreset() {
+        java.util.Set<String> keep = java.util.Set.of("sprint", "fps", "ping", "cps");
+        for (Module m : REGISTRY) {
+            m.enabled = keep.contains(m.id);
         }
-        int iconW = m.boolProp("icons", true) ? 18 : 0;
-        int gap = iconW > 0 && tw > 0 ? 2 : 0;
-        return new int[]{3 + iconW + gap + tw + 6, rows.size() * 18 + 2};
+        com.astucy.client.config.AstucyConfig.save();
+    }
+
+    public static void resetPositions() {
+        java.util.Map<String, double[]> defAnchors = new java.util.HashMap<>();
+        defAnchors.put("fps", new double[]{0.012, 0.02});
+        defAnchors.put("ping", new double[]{0.012, 0.06});
+        defAnchors.put("server", new double[]{0.012, 0.098});
+        defAnchors.put("memory", new double[]{0.012, 0.136});
+        defAnchors.put("speed", new double[]{0.012, 0.174});
+        defAnchors.put("direcao", new double[]{0.5, 0.02});
+        defAnchors.put("sessao", new double[]{0.012, 0.25});
+        defAnchors.put("hora", new double[]{0.845, 0.135});
+        defAnchors.put("bioma", new double[]{0.845, 0.173});
+        defAnchors.put("coords", new double[]{0.845, 0.02});
+        defAnchors.put("efeitos", new double[]{0.845, 0.211});
+        defAnchors.put("cps", new double[]{0.012, 0.88});
+        defAnchors.put("keystrokes", new double[]{0.012, 0.62});
+        defAnchors.put("reach", new double[]{0.845, 0.88});
+        defAnchors.put("totem", new double[]{0.845, 0.94});
+        defAnchors.put("armor", new double[]{0.845, 0.835});
+        defAnchors.put("sprint", new double[]{0.012, 0.30});
+        defAnchors.put("itens", new double[]{0.012, 0.338});
+        defAnchors.put("health", new double[]{0.012, 0.414});
+        defAnchors.put("hunger", new double[]{0.012, 0.452});
+        defAnchors.put("combo", new double[]{0.012, 0.49});
+        defAnchors.put("pack", new double[]{0.012, 0.376});
+        defAnchors.put("target", new double[]{0.845, 0.28});
+        defAnchors.put("armordur", new double[]{0.845, 0.34});
+        defAnchors.put("daycounter", new double[]{0.012, 0.528});
+        defAnchors.put("itemcount", new double[]{0.012, 0.566});
+        defAnchors.put("watermark", new double[]{0.5, 0.955});
+        defAnchors.put("fpsgraph", new double[]{0.845, 0.40});
+        defAnchors.put("realtime", new double[]{0.845, 0.56});
+        for (Module m : REGISTRY) {
+            double[] a = defAnchors.get(m.id);
+            if (a != null) {
+                m.anchorX = a[0];
+                m.anchorY = a[1];
+            }
+            m.scale = 1.0;
+            m.scaleY = 1.0;
+        }
+        com.astucy.client.config.AstucyConfig.save();
     }
 
     /** Módulo tem o que desenhar agora? (armadura/efeitos podem estar vazios) */

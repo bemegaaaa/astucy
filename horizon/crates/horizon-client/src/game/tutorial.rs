@@ -74,6 +74,11 @@ pub(super) struct Tutorial {
 
 impl Tutorial {
     pub(super) fn new(step: Step) -> Self {
+        let step = if horizon_core::version::is_189_mode() {
+            Step::None
+        } else {
+            step
+        };
         Self {
             step,
             waiting: 0,

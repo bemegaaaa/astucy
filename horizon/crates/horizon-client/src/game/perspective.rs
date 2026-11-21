@@ -475,10 +475,18 @@ impl Game<'_> {
         let using_off_hand = self
             .using
             .is_some_and(|(slot, _)| slot == super::shield::OFFHAND_SLOT);
-        let blocking = self
-            .using
-            .and_then(|(slot, _)| self.stack_in(slot))
-            .is_some_and(|stack| self.blocks_attacks(stack).is_some());
+        let legacy_sword_block = (self.settings.extras.pvp.combat.legacy
+            || horizon_core::version::is_189_mode())
+            && self.right
+            && self.screen == Screen::Playing
+            && self.inventory[self.selected]
+                .as_ref()
+                .is_some_and(|s| s.item.ends_with("_sword"));
+        let blocking = legacy_sword_block
+            || self
+                .using
+                .and_then(|(slot, _)| self.stack_in(slot))
+                .is_some_and(|stack| self.blocks_attacks(stack).is_some());
         let charged = self.inventory[self.selected]
             .as_ref()
             .is_some_and(|s| s.data().is_some_and(|d| !d.charged.is_empty()));

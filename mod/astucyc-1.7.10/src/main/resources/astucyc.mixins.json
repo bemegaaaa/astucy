@@ -1,0 +1,15 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.astucy.client.mixin",
+  "compatibilityLevel": "JAVA_8",
+  "client": [
+    "MinecraftClientAccessor",
+    "InGameHudMixin",
+    "GameRendererMixin",
+    "KeyboardInputMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

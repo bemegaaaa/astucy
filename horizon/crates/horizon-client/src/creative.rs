@@ -209,6 +209,189 @@ pub fn item_group_key(id: &str) -> Option<&'static str> {
         _ => return None,
     })
 }
+fn is_189_creative_item(item: &str) -> bool {
+    let id = item.strip_prefix("minecraft:").unwrap_or(item);
+    const EXCLUDED_EXACT: &[&str] = &[
+        "elytra",
+        "shield",
+        "totem_of_undying",
+        "trident",
+        "crossbow",
+        "spyglass",
+        "goat_horn",
+        "brush",
+        "mace",
+        "bundle",
+        "lantern",
+        "soul_lantern",
+        "soul_torch",
+        "campfire",
+        "soul_campfire",
+        "ancient_debris",
+        "end_rod",
+        "end_crystal",
+        "lingering_potion",
+        "tipped_arrow",
+        "spectral_arrow",
+        "beetroot",
+        "beetroot_seeds",
+        "beetroot_soup",
+        "sweet_berries",
+        "sea_pickle",
+        "conduit",
+        "turtle_helmet",
+        "turtle_scute",
+        "scute",
+        "armadillo_scute",
+        "heart_of_the_sea",
+        "nautilus_shell",
+        "phantom_membrane",
+        "barrel",
+        "smoker",
+        "blast_furnace",
+        "stonecutter",
+        "grindstone",
+        "smithing_table",
+        "fletching_table",
+        "cartography_table",
+        "loom",
+        "composter",
+        "lectern",
+        "bell",
+        "scaffolding",
+        "observer",
+        "target",
+        "lodestone",
+        "respawn_anchor",
+        "crying_obsidian",
+        "chain",
+        "iron_chain",
+        "tinted_glass",
+        "calcite",
+        "tuff",
+        "powder_snow_bucket",
+        "lightning_rod",
+        "crafter",
+        "vault",
+        "heavy_core",
+        "wind_charge",
+        "breeze_rod",
+        "ominous_bottle",
+        "dried_kelp",
+        "dried_kelp_block",
+        "kelp",
+        "seagrass",
+        "bamboo",
+        "spore_blossom",
+        "pointed_dripstone",
+        "dripstone_block",
+        "magma_block",
+        "nether_wart_block",
+        "warped_wart_block",
+        "red_nether_bricks",
+        "bone_block",
+        "observer",
+        "frosted_ice",
+        "chorus_fruit",
+        "popped_chorus_fruit",
+        "chorus_flower",
+        "chorus_plant",
+        "dragon_breath",
+        "knowledge_book",
+        "debug_stick",
+        "suspicious_stew",
+        "flower_banner_pattern",
+        "creeper_banner_pattern",
+        "skull_banner_pattern",
+        "mojang_banner_pattern",
+        "globe_banner_pattern",
+        "piglin_banner_pattern",
+        "phantom_spawn_egg",
+        "drowned_spawn_egg",
+        "pillager_spawn_egg",
+        "ravager_spawn_egg",
+        "vex_spawn_egg",
+        "evoker_spawn_egg",
+        "vindicator_spawn_egg",
+        "polar_bear_spawn_egg",
+        "llama_spawn_egg",
+        "parrot_spawn_egg",
+        "dolphin_spawn_egg",
+        "turtle_spawn_egg",
+        "cod_spawn_egg",
+        "salmon_spawn_egg",
+        "pufferfish_spawn_egg",
+        "tropical_fish_spawn_egg",
+        "panda_spawn_egg",
+        "fox_spawn_egg",
+        "bee_spawn_egg",
+        "hoglin_spawn_egg",
+        "piglin_spawn_egg",
+        "strider_spawn_egg",
+        "zoglin_spawn_egg",
+        "axolotl_spawn_egg",
+        "goat_spawn_egg",
+        "warden_spawn_egg",
+        "allay_spawn_egg",
+        "frog_spawn_egg",
+        "tadpole_spawn_egg",
+        "camel_spawn_egg",
+        "sniffer_spawn_egg",
+        "armadillo_spawn_egg",
+        "bogged_spawn_egg",
+        "breeze_spawn_egg",
+        "creaking_spawn_egg",
+        "happy_ghast_spawn_egg",
+        "copper_golem_spawn_egg",
+    ];
+    if EXCLUDED_EXACT.contains(&id) {
+        return false;
+    }
+    const EXCLUDED_SUBSTRS: &[&str] = &[
+        "netherite",
+        "copper",
+        "deepslate",
+        "amethyst",
+        "sculk",
+        "breeze",
+        "trial_",
+        "shulker",
+        "cherry_",
+        "mangrove_",
+        "bamboo_",
+        "crimson_",
+        "warped_",
+        "pale_",
+        "resin_",
+        "blackstone",
+        "basalt",
+        "concrete",
+        "glazed_terracotta",
+        "purpur",
+        "glow_",
+        "honey",
+        "bee_",
+        "beehive",
+        "coral",
+        "mud",
+        "moss",
+        "azalea",
+        "dripleaf",
+        "smithing_template",
+        "_sherd",
+        "decorated_pot",
+        "chiseled_bookshelf",
+        "_hanging_sign",
+        "stripped_",
+        "candle",
+        "_harness",
+        "_bundle",
+        "spear",
+        "sulfur",
+    ];
+    !EXCLUDED_SUBSTRS.iter().any(|s| id.contains(s))
+}
+
 impl Creative {
     pub const WIDTH: f32 = 195.0;
     pub const HEIGHT: f32 = 136.0;
@@ -216,7 +399,12 @@ impl Creative {
 
     /// Visible player slots in the creative inventory tab (game slot ids).
     pub fn inventory_slots() -> impl Iterator<Item = usize> {
-        (0..36).chain(500..505)
+        let end = if horizon_core::version::is_189_mode() {
+            504
+        } else {
+            505
+        };
+        (0..36).chain(500..end)
     }
 
     /// CreativeModeInventoryScreen.selectTab positions its InventoryMenu wrappers.
@@ -234,7 +422,7 @@ impl Creative {
                     6.0 + (position % 2) as f32 * 27.0,
                 ))
             }
-            504 => Some((35.0, 20.0)),
+            504 if !horizon_core::version::is_189_mode() => Some((35.0, 20.0)),
             _ => None,
         }
     }
@@ -278,7 +466,12 @@ impl Creative {
     pub fn from_json(raw: &Value) -> Result<Self> {
         let mut tabs = Vec::new();
         let mut search = Vec::new();
+        let mode_189 = horizon_core::version::is_189_mode();
         for t in raw["tabs"].as_array().into_iter().flatten() {
+            let kind = t["type"].as_str().unwrap_or("");
+            if mode_189 && kind == "HOTBAR" {
+                continue;
+            }
             // The stacks only a build with permissions lists, by index.
             let only: Vec<u64> = t["permissions_only"]
                 .as_array()
@@ -288,29 +481,37 @@ impl Creative {
                 .collect();
             let mut items = Vec::new();
             let mut operator = Vec::new();
+            let mut lines_raw: Vec<Vec<String>> = Vec::new();
+            let mut tags_raw: Vec<Vec<(String, String)>> = Vec::new();
+            let strings = |v: &Value| -> Vec<String> {
+                v.as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|s| s.as_str().map(java_lower))
+                    .collect()
+            };
             for (i, v) in t["items"].as_array().into_iter().flatten().enumerate() {
                 let snbt = v.as_str().unwrap_or("-");
                 if let Some(stack) = crate::item_data::parse_stack(snbt)? {
+                    if mode_189 && !is_189_creative_item(&stack.item) {
+                        continue;
+                    }
                     items.push(stack);
                     operator.push(only.contains(&(i as u64)));
+                    if kind == "SEARCH" {
+                        lines_raw.push(strings(&t["lines"][i]));
+                        tags_raw.push(strings(&t["tags"][i]).iter().map(|t| split_id(t)).collect());
+                    }
                 }
             }
-            let kind = t["type"].as_str().unwrap_or("");
             if kind == "SEARCH" {
-                let strings = |v: &Value| -> Vec<String> {
-                    v.as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|s| s.as_str().map(java_lower))
-                        .collect()
-                };
                 for (i, stack) in items.iter().enumerate() {
                     let (namespace, path) = split_id(&java_lower(&stack.item));
                     let entry = SearchEntry {
                         namespace,
                         path,
-                        lines: strings(&t["lines"][i]),
-                        tags: strings(&t["tags"][i]).iter().map(|t| split_id(t)).collect(),
+                        lines: lines_raw[i].clone(),
+                        tags: tags_raw[i].clone(),
                     };
                     search.push((stack.clone(), entry, operator[i]));
                 }

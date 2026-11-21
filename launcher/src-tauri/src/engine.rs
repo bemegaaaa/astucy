@@ -187,18 +187,14 @@ pub struct CatalogEntry {
     pub kind: String,
     pub released: String,
     pub installed: bool,
-    /// roda com o client Astucy (Fabric 26.x)
+    /// roda com o client Astucy (26.x, 1.21.4, 1.20.1, 1.8.9, 1.7.10)
     pub client: bool,
 }
 
-/// 26.x em diante (esquema novo ano.major) roda com o client Astucy.
+/// Versões que possuem o mod oficial do Astucy Client.
 /// Snapshots ("26w13a") não entram — não têm perfil Fabric pronto.
 fn is_client_version(id: &str) -> bool {
-    id.split('.')
-        .next()
-        .and_then(|s| s.parse::<u32>().ok())
-        .map(|m| m >= 26)
-        .unwrap_or(false)
+    crate::profile::has_client_mod(id)
 }
 
 /// Catálogo começa em 1.7.10 (ainda roda com Java 8/LWJGL 2) e só inclui
@@ -225,6 +221,14 @@ fn supported_release(id: &str) -> bool {
 
 /// Lista completa da Mojang (release/snapshot/alpha/beta) - independe do
 /// que já existe na máquina. `installed` só marca o que já foi baixado.
+fn rust_target_version(id: &str) -> Option<&'static str> {
+    match id.trim() {
+        "26.3 (Rust)" | "26.3-rust" => Some("26.3"),
+        "1.8.9 (Rust)" | "1.8.9-rust" => Some("1.8.9"),
+        _ => None,
+    }
+}
+
 pub fn catalog(force: bool) -> Result<Vec<CatalogEntry>, String> {
     let meta = meta_dir();
     std::fs::create_dir_all(&meta).ok();
@@ -237,18 +241,26 @@ pub fn catalog(force: bool) -> Result<Vec<CatalogEntry>, String> {
         return Err("manifest sem lista de versões".into());
     };
     let versions_root = mc_root().join("versions");
-    let mut out = Vec::with_capacity(list.len() + 1);
+    let mut out = Vec::with_capacity(list.len() + 2);
     if horizon_available() {
         let dir_263 = versions_root.join("26.3");
         let res_ready = horizon_resources_dir()
             .map(|d| d.join("horizon-resources.json").exists())
             .unwrap_or(false);
+        let ready_263 = res_ready
+            || (dir_263.join("26.3.json").exists() && dir_263.join("26.3.jar").exists());
         out.push(CatalogEntry {
             id: "26.3 (Rust)".to_string(),
             kind: "release".to_string(),
             released: "Horizon Rust Engine · 26.3".to_string(),
-            installed: res_ready
-                || (dir_263.join("26.3.json").exists() && dir_263.join("26.3.jar").exists()),
+            installed: ready_263,
+            client: true,
+        });
+        out.push(CatalogEntry {
+            id: "1.8.9 (Rust)".to_string(),
+            kind: "release".to_string(),
+            released: "Horizon Rust Engine · 1.8.9 PvP".to_string(),
+            installed: ready_263,
             client: true,
         });
     }
@@ -287,7 +299,7 @@ pub fn catalog(force: bool) -> Result<Vec<CatalogEntry>, String> {
 /// Baixa (se faltar) o JSON da versão e o jar do cliente direto da Mojang.
 /// Bibliotecas e assets continuam sendo verificados no launch, como antes.
 pub fn ensure_version(app: Option<&AppHandle>, id: &str) -> Result<(), String> {
-    let id = if id == "26.3 (Rust)" || id == "26.3-rust" {
+    let id = if rust_target_version(id).is_some() {
         "26.3"
     } else {
         id
@@ -530,6 +542,43 @@ fn sha1_hex(bytes: &[u8]) -> String {
  * resolução da versão (herança fabric → vanilla)
  * ================================================================ */
 
+/// Chave (group:artifact, is_natives) para o filho (Fabric) sobrescrever libs do pai (ex.: LWJGL 2.9.4 vs 2.9.1).
+fn library_override_key(lib: &Value) -> Option<(String, bool)> {
+    let name = lib.get("name").and_then(|n| n.as_str())?;
+    let mut parts = name.split(':');
+    let g = parts.next()?;
+    let a = parts.next()?;
+    let is_natives = lib.get("natives").is_some();
+    Some((format!("{g}:{a}"), is_natives))
+}
+
+fn merge_libraries(parent: &Value, child: &Value) -> Vec<Value> {
+    let child_libs = child
+        .get("libraries")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let child_keys: std::collections::HashSet<(String, bool)> = child_libs
+        .iter()
+        .filter(|l| rules_allow(l.get("rules")))
+        .filter_map(library_override_key)
+        .collect();
+
+    let mut libs = Vec::new();
+    if let Some(parent_libs) = parent.get("libraries").and_then(|v| v.as_array()) {
+        for lib in parent_libs {
+            if let Some(key) = library_override_key(lib)
+                && child_keys.contains(&key)
+            {
+                continue;
+            }
+            libs.push(lib.clone());
+        }
+    }
+    libs.extend(child_libs);
+    libs
+}
+
 fn version_json(mc: &Path, name: &str) -> Result<Value, String> {
     let path = mc.join("versions").join(name).join(format!("{name}.json"));
     let raw = std::fs::read_to_string(&path).map_err(|e| format!("versão {name}: {e}"))?;
@@ -551,14 +600,8 @@ fn version_json(mc: &Path, name: &str) -> Result<Value, String> {
             .map_err(|e| format!("versão base {parent_id}: {e}"))?;
         let parent: Value = serde_json::from_str(&praw).map_err(|e| e.to_string())?;
 
-        // filho tem precedência; bibliotecas = pai + filho (ordem MultiMC)
-        let mut libs = vec![];
-        if let Some(l) = parent.get("libraries").and_then(|v| v.as_array()) {
-            libs.extend(l.iter().cloned());
-        }
-        if let Some(l) = merged.get("libraries").and_then(|v| v.as_array()) {
-            libs.extend(l.iter().cloned());
-        }
+        // filho tem precedência (inclusive substituindo LWJGL antigo do vanilla)
+        let libs = merge_libraries(&parent, &merged);
         let mut m = parent;
         merge_missing(&mut m, &merged);
         m["libraries"] = Value::Array(libs);
@@ -643,14 +686,23 @@ fn rules_allow(rules: Option<&Value>) -> bool {
  * bibliotecas → classpath (natives 26.x ficam NO classpath, sem extrair)
  * ================================================================ */
 
-/// name maven ("org.ow2.asm:asm:9.10.1") → caminho relativo no repositório.
-fn maven_rel(gav: &str) -> Option<String> {
+/// name maven ("org.ow2.asm:asm:9.10.1") + classifier opcional → caminho relativo no repositório.
+fn maven_rel_with_classifier(gav: &str, classifier: Option<&str>) -> Option<String> {
     let parts: Vec<&str> = gav.split(':').collect();
     if parts.len() != 3 {
         return None;
     }
     let (g, a, v) = (parts[0], parts[1], parts[2]);
-    Some(format!("{}/{a}/{v}/{a}-{v}.jar", g.replace('.', "/")))
+    match classifier {
+        Some(cls) if !cls.is_empty() => {
+            Some(format!("{}/{a}/{v}/{a}-{v}-{cls}.jar", g.replace('.', "/")))
+        }
+        _ => Some(format!("{}/{a}/{v}/{a}-{v}.jar", g.replace('.', "/"))),
+    }
+}
+
+fn maven_rel(gav: &str) -> Option<String> {
+    maven_rel_with_classifier(gav, None)
 }
 
 fn resolve_libraries(v: &Value, libs_dir: &Path, natives_dir: &Path) -> Result<Vec<PathBuf>, String> {
@@ -665,6 +717,7 @@ fn resolve_libraries(v: &Value, libs_dir: &Path, natives_dir: &Path) -> Result<V
         }
         // versões antigas (≤ 1.12): DLLs em jars separados, precisam ser
         // extraídas — o LWJGL 2 não abre jar, procura o arquivo solto.
+        let mut has_maven_natives = false;
         if let Some(cls) = lib
             .get("natives")
             .and_then(|n| n.get("windows"))
@@ -687,15 +740,35 @@ fn resolve_libraries(v: &Value, libs_dir: &Path, natives_dir: &Path) -> Result<V
                     download_to(url, &jar, sha1)?;
                     unzip_natives(&jar, natives_dir)?;
                 }
+            } else if lib.get("downloads").is_none()
+                && let Some(name) = lib.get("name").and_then(|n| n.as_str())
+                && let Some(rel) = maven_rel_with_classifier(name, Some(&cls))
+            {
+                // formato Legacy Fabric (name + url + natives sem bloco `downloads`)
+                has_maven_natives = true;
+                let base = lib
+                    .get("url")
+                    .and_then(|u| u.as_str())
+                    .unwrap_or("https://maven.fabricmc.net/");
+                let base = if base.ends_with('/') {
+                    base.to_string()
+                } else {
+                    format!("{base}/")
+                };
+                let jar = libs_dir.join(&rel);
+                if !jar.exists() {
+                    let sha1 = lib.get("sha1").and_then(|s| s.as_str());
+                    download_to(&format!("{base}{rel}"), &jar, sha1)?;
+                }
+                unzip_natives(&jar, natives_dir)?;
             }
         }
         let Some(artifact) = lib
             .get("downloads")
             .and_then(|d| d.get("artifact"))
         else {
-            // tem bloco `downloads` mas sem artifact = biblioteca só de
-            // natives (já extraída acima): não entra no classpath
-            if lib.get("downloads").is_some() {
+            // tem bloco `downloads` sem artifact, ou natives Maven já extraídas acima
+            if lib.get("downloads").is_some() || has_maven_natives {
                 continue;
             }
             // formato Fabric (name + url de maven): g:a:v → caminho maven
@@ -714,6 +787,11 @@ fn resolve_libraries(v: &Value, libs_dir: &Path, natives_dir: &Path) -> Result<V
                     .get("url")
                     .and_then(|u| u.as_str())
                     .unwrap_or("https://maven.fabricmc.net/");
+                let base = if base.ends_with('/') {
+                    base.to_string()
+                } else {
+                    format!("{base}/")
+                };
                 let sha1 = lib.get("sha1").and_then(|s| s.as_str());
                 download_to(&format!("{}{}", base, rel), &dest, sha1)?;
             }
@@ -1071,6 +1149,7 @@ fn launch_horizon_rust(
     app: Option<&AppHandle>,
     nick: &str,
     session: Option<&crate::auth::Session>,
+    target_version: &str,
 ) -> Result<u32, String> {
     let dist = horizon_dist_dir().ok_or_else(|| {
         fail(
@@ -1078,9 +1157,14 @@ fn launch_horizon_rust(
             "Motor Rust (Horizon 26.3) não encontrado em %LOCALAPPDATA%\\astucy\\horizon.",
         )
     })?;
+    let is_189 = target_version == "1.8.9";
     let h_root = horizon_root().ok_or_else(|| fail(app, "LOCALAPPDATA não definido"))?;
     let res_dir = h_root.join("resources").join("26.3");
-    let home_dir = h_root.join("home");
+    let home_dir = if is_189 {
+        h_root.join("home-1.8.9")
+    } else {
+        h_root.join("home")
+    };
     std::fs::create_dir_all(&res_dir).ok();
     std::fs::create_dir_all(&home_dir).ok();
 
@@ -1201,13 +1285,60 @@ fn launch_horizon_rust(
         }
     }
 
-    // 4. Iniciar horizon-client.exe (Astucy Client · Rust Engine 26.3)
-    stage(app, "motor rust", 5, 5, "iniciando Astucy Client (Rust)");
+    // 4. Iniciar horizon-client.exe (Astucy Client · Rust Engine)
+    if is_189 {
+        let _ = crate::profile::set_rust_addon_enabled("combat18", true);
+    }
+    stage(
+        app,
+        "motor rust",
+        5,
+        5,
+        if is_189 {
+            "iniciando Astucy Client 1.8.9 (Rust)"
+        } else {
+            "iniciando Astucy Client (Rust)"
+        },
+    );
     let client_exe = dist.join("horizon-client.exe");
     expose_gpu(&client_exe);
 
-    let game_dir = p.mc.join("astucy-profile");
+    let base_game_dir = p.mc.join("astucy-profile");
+    let game_dir = if is_189 {
+        p.mc.join("astucy-profile-1.8.9")
+    } else {
+        base_game_dir.clone()
+    };
     std::fs::create_dir_all(&game_dir).ok();
+    if is_189 {
+        std::fs::create_dir_all(game_dir.join("saves")).ok();
+        let base_rp = base_game_dir.join("resourcepacks");
+        let rp_189 = game_dir.join("resourcepacks");
+        std::fs::create_dir_all(&base_rp).ok();
+        if !rp_189.exists() {
+            let _ = std::process::Command::new("cmd")
+                .args([
+                    "/C",
+                    "mklink",
+                    "/J",
+                    &rp_189.to_string_lossy(),
+                    &base_rp.to_string_lossy(),
+                ])
+                .creation_flags(CREATE_NO_WINDOW)
+                .status();
+        }
+        for fname in ["servers.dat", "options.txt"] {
+            let src = base_game_dir.join(fname);
+            let dst = game_dir.join(fname);
+            if src.exists() && !dst.exists() {
+                let _ = std::fs::copy(&src, &dst);
+            }
+        }
+        let src_cfg = base_game_dir.join("astucy-rust.json");
+        if src_cfg.exists() {
+            let _ = std::fs::copy(&src_cfg, game_dir.join("astucy-rust.json"));
+        }
+    }
     // Grava também horizon-player.txt para singleplayer/offline
     let _ = std::fs::write(game_dir.join("horizon-player.txt"), format!("{nick}\n"));
 
@@ -1238,7 +1369,7 @@ fn launch_horizon_rust(
         .unwrap_or_else(|| p.meta.clone());
     std::fs::create_dir_all(&log_dir).ok();
     let log_path = log_dir.join(format!(
-        "launch-rust-26.3-{}.log",
+        "launch-rust-{target_version}-{}.log",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -1263,6 +1394,7 @@ fn launch_horizon_rust(
     cmd.args(&argv)
         .current_dir(&game_dir)
         .env("ASTUCY_LAUNCHER", &launcher_exe)
+        .env("ASTUCY_MC_VERSION", target_version)
         .creation_flags(CREATE_NO_WINDOW)
         .stdin(if session.is_some() {
             std::process::Stdio::piped()
@@ -1306,7 +1438,7 @@ fn launch_horizon_rust(
     if let Some(app) = app {
         let _ = app.emit(
             "launch://done",
-            json!({ "pid": pid, "version": "26.3 (Rust)", "nick": nick, "log": log_path.display().to_string() }),
+            json!({ "pid": pid, "version": format!("{target_version} (Rust)"), "nick": nick, "log": log_path.display().to_string() }),
         );
     }
     Ok(pid)
@@ -1655,8 +1787,19 @@ fn offline_uuid(nick: &str) -> String {
  * launch principal
  * ================================================================ */
 
-/// Pede ao Fabric meta o loader mais novo para esta versão do jogo e devolve
-/// o profile json pronto (mainClass + libraries + arguments).
+fn fabric_meta_base(version: &str) -> &'static str {
+    let mut parts = version.split('.');
+    let major: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let minor: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    if major == 1 && minor <= 13 {
+        "https://meta.legacyfabric.net"
+    } else {
+        "https://meta.fabricmc.net"
+    }
+}
+
+/// Pede ao Fabric meta (ou Legacy Fabric para <=1.13) o loader mais novo para esta
+/// versão do jogo e devolve o profile json pronto (mainClass + libraries + arguments).
 fn fabric_profile(version: &str) -> Result<(String, serde_json::Value), String> {
     let client = reqwest::blocking::Client::builder()
         .user_agent("AstucyLauncher/0.1")
@@ -1664,8 +1807,9 @@ fn fabric_profile(version: &str) -> Result<(String, serde_json::Value), String> 
         .build()
         .map_err(|e| format!("http: {e}"))?;
 
+    let base = fabric_meta_base(version);
     let list: serde_json::Value = client
-        .get(format!("https://meta.fabricmc.net/v2/versions/loader/{version}"))
+        .get(format!("{base}/v2/versions/loader/{version}"))
         .send()
         .and_then(|r| r.error_for_status())
         .and_then(|r| r.json())
@@ -1673,7 +1817,16 @@ fn fabric_profile(version: &str) -> Result<(String, serde_json::Value), String> 
 
     let loader = list
         .as_array()
-        .and_then(|a| a.first())
+        .and_then(|a| {
+            a.iter()
+                .find(|v| {
+                    v.get("loader")
+                        .and_then(|l| l.get("stable"))
+                        .and_then(|b| b.as_bool())
+                        == Some(true)
+                })
+                .or_else(|| a.first())
+        })
         .and_then(|v| v.get("loader"))
         .and_then(|l| l.get("version"))
         .and_then(|s| s.as_str())
@@ -1682,7 +1835,7 @@ fn fabric_profile(version: &str) -> Result<(String, serde_json::Value), String> 
 
     let prof: serde_json::Value = client
         .get(format!(
-            "https://meta.fabricmc.net/v2/versions/loader/{version}/{loader}/profile/json"
+            "{base}/v2/versions/loader/{version}/{loader}/profile/json"
         ))
         .send()
         .and_then(|r| r.error_for_status())
@@ -1694,11 +1847,8 @@ fn fabric_profile(version: &str) -> Result<(String, serde_json::Value), String> 
 
 /// "Sempre Fabric": devolve o id de um perfil Fabric para a versão escolhida.
 /// 1) versão já é Fabric → tal como está;
-/// 2) perfil astucy-fabric-<v> já criado antes → reuso;
-/// 3) senão, cria a partir do template fabric-loader-* instalado na máquina
-///    (asm/mixin/loader são versão-independentes; jar do cliente e assets
-///    vêm do inheritsFrom). Versões desofuscadas (26.x) só — as antigas
-///    exigiriam intermediary próprio.
+/// 2) consulta Fabric meta / Legacy Fabric meta para criar/atualizar `astucy-fabric-<v>`;
+/// 3) se a versão não tiver suporte no meta (ex.: snapshot/offline sem cache), cai no vanilla.
 fn ensure_fabric_profile(app: Option<&AppHandle>, version: &str) -> Result<String, String> {
     let appdata = std::env::var("APPDATA").map_err(|_| "APPDATA não definido")?;
     let versions = Path::new(&appdata).join(".minecraft").join("versions");
@@ -1719,19 +1869,9 @@ fn ensure_fabric_profile(app: Option<&AppHandle>, version: &str) -> Result<Strin
         return Ok(version.to_string());
     }
 
-    // 26.x = desofuscado; 1.x/antigas ficam tal como escolhido (sem pack,
-    // pois exigiriam intermediary próprio por versão).
-    let unobfuscated = is_client_version(version);
-    if !unobfuscated {
-        return Ok(version.to_string());
-    }
-
     let profile = format!("astucy-fabric-{version}");
     let prof_path = versions.join(&profile).join(format!("{profile}.json"));
 
-    // Loader mais novo do Fabric para esta versão do jogo. O template local
-    // pode estar velho (0.19.x) e aí mods recentes recusam carregar
-    // ("requires Fabric Loader 0.20.1 or later").
     if let Ok((loader_ver, mut prof)) = fabric_profile(version) {
         let already = std::fs::read_to_string(&prof_path)
             .ok()
@@ -1749,17 +1889,18 @@ fn ensure_fabric_profile(app: Option<&AppHandle>, version: &str) -> Result<Strin
                 serde_json::to_string_pretty(&prof).unwrap_or_default(),
             )
             .map_err(|e| format!("gravar {profile}: {e}"))?;
-            stage(app, "versão", 0, 3, &format!("{version} + Fabric {loader_ver}"));
-        } else {
-            stage(app, "versão", 0, 3, &format!("{version} + Fabric {loader_ver}"));
         }
+        stage(app, "versão", 0, 3, &format!("{version} + Fabric {loader_ver}"));
         return Ok(profile);
     }
 
-    // offline: reusa o que já existe
     if is_fabric(&profile) {
         stage(app, "versão", 0, 3, &format!("{version} + Fabric (perfil pronto)"));
         return Ok(profile);
+    }
+
+    if !is_client_version(version) {
+        return Ok(version.to_string());
     }
 
     // offline e sem perfil: copia o template local
@@ -1840,23 +1981,25 @@ fn launch_inner(
         return Err(fail(app, "Nick só pode ter letras, números e _"));
     }
 
-    // Motor Rust (Horizon 26.3 — Astucy Native Rust Client):
-    let use_rust = version == "26.3 (Rust)"
-        || version == "26.3-rust"
-        || (version == "26.3" && horizon_available() && load_user_settings().rust_engine);
-    if use_rust {
-        return launch_horizon_rust(app, nick, session.as_ref());
+    // Motor Rust (Horizon 26.3 / 1.8.9 — Astucy Native Rust Client):
+    let rust_ver = rust_target_version(version).or_else(|| {
+        (version == "26.3" && horizon_available() && load_user_settings().rust_engine)
+            .then_some("26.3")
+    });
+    if let Some(target_ver) = rust_ver {
+        return launch_horizon_rust(app, nick, session.as_ref(), target_ver);
     }
 
     // A versão pode não existir nesta máquina: baixa o JSON + jar da Mojang.
     ensure_version(app, version)?;
 
-    // SEMPRE FABRIC (26.x): injeta o loader + pack do Astucy antes de qualquer coisa.
+    // SEMPRE FABRIC: injeta o loader + mod do Astucy da versão selecionada.
     let version = ensure_fabric_profile(app, version)?;
 
-    // módulo astucyc no perfil = mesma build da release (auto-update silencioso;
-    // se a rede falhar, segue a partida com o jar que já está no perfil)
-    let _ = crate::profile::sync_core_mod();
+    // módulo astucyc no perfil da versão + Fabric API compatível
+    let _ = crate::profile::sync_core_mod(&base_version);
+    stage(app, "mods", 0, 3, "verificando Fabric API");
+    crate::profile::ensure_fabric_api(&base_version).map_err(|e| fail(app, &e))?;
     let p = paths(&version)?;
 
     stage(app, "versão", 0, 3, &version);
@@ -1940,21 +2083,42 @@ fn launch_inner(
     map.insert("version_name".into(), version.clone());
     map.insert("version_type".into(),
         v.get("type").and_then(|s| s.as_str()).unwrap_or("release").into());
-    // Pasta do jogo:
-    //  - 26.x (client)  → astucy-profile (mods + tema)
-    //  - legado ≤1.12   → pasta própria (o options.txt antigo destruiria o
-    //                     formato novo do 26.x se dividisse o .minecraft)
-    //  - resto          → .minecraft normal
-    let legacy = v.get("arguments").is_none() && v.get("minecraftArguments").is_some();
+    // Pasta do jogo (isola options.txt e configs entre gerações):
+    //  - 26.x (client)          → astucy-profile (mods + tema)
+    //  - 1.x com mod/legado     → astucy-versions/<versão> (evita conflito de options.txt/config)
+    //  - resto                  → .minecraft normal
+    let args = v.get("arguments");
+    let has_legacy_args = v.get("minecraftArguments").and_then(|s| s.as_str()).is_some();
+    let has_modern_game_args = args
+        .and_then(|a| a.get("game"))
+        .and_then(|g| g.as_array())
+        .map(|a| !a.is_empty())
+        .unwrap_or(false);
+    let has_modern_jvm_args = args
+        .and_then(|a| a.get("jvm"))
+        .and_then(|g| g.as_array())
+        .map(|a| !a.is_empty())
+        .unwrap_or(false);
+    let legacy = has_legacy_args && !has_modern_game_args;
     let knot = v
         .get("mainClass")
         .and_then(|s| s.as_str())
         .map(|m| m.contains("Knot"))
         .unwrap_or(false);
-    let game_dir = if knot {
+    let is_26x = base_version
+        .split('.')
+        .next()
+        .and_then(|s| s.parse::<u32>().ok())
+        .map(|m| m >= 26)
+        .unwrap_or(false);
+    let game_dir = if knot && is_26x {
         p.mc.join("astucy-profile")
-    } else if legacy {
-        p.mc.join("astucy-versions").join(&base_version)
+    } else if knot || legacy {
+        let safe_ver: String = base_version
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' })
+            .collect();
+        p.mc.join("astucy-versions").join(safe_ver)
     } else {
         p.mc.clone()
     };
@@ -1971,7 +2135,6 @@ fn launch_inner(
     map.insert("launcher_version".into(), env!("CARGO_PKG_VERSION").into());
     map.insert("version_name".into(), version.clone());
 
-    let args = v.get("arguments");
     let mut argv = arg_entries(args.and_then(|a| a.get("jvm")), &map);
 
     // Ajustes do usuário (settings.json do launcher) — JVM primeiro, vence
@@ -2038,9 +2201,11 @@ fn launch_inner(
             }
         }
 
-        // versões legadas (1.7.10) não trazem -Djava.library.path no JSON —
-        // o LWJGL 2 procura as DLLs soltas na pasta de natives
-        if v.get("arguments").is_none() && v.get("minecraftArguments").is_some() {
+        // versões legadas (1.7.10/1.8.9) não trazem -Djava.library.path no JSON —
+        // mesmo quando um loader injeta `arguments.jvm`, ainda precisamos das natives
+        if !has_modern_jvm_args
+            || !argv.iter().any(|a| a.starts_with("-Djava.library.path="))
+        {
             pre.push(format!("-Djava.library.path={}", p.natives.display()));
         }
         if let Some(jvm) = &user.jvm {
@@ -2070,17 +2235,19 @@ fn launch_inner(
         argv.push(user.res_h.to_string());
     }
 
-    // Perfil Fabric: pasta própria com mods por versão + tema visual
+    // Perfil Fabric: pasta própria com mods por versão + tema visual (apenas 26.x)
     if knot {
-        let profile = p.mc.join("astucy-profile");
         if let Ok(vmods) = crate::profile::mods_dir_for(&base_version) {
             // Garante que o Fabric Loader carregue apenas os mods da versão atual
             if let Some(idx) = argv.iter().position(|a| a == main_class) {
                 argv.insert(idx, format!("-Dfabric.modsFolder={}", vmods.display()));
             }
         }
-        if let Err(e) = ensure_theme_pack(&profile) {
-            eprintln!("[astucy] tema: {e}");
+        if is_26x {
+            let profile = p.mc.join("astucy-profile");
+            if let Err(e) = ensure_theme_pack(&profile) {
+                eprintln!("[astucy] tema: {e}");
+            }
         }
     }
 
@@ -2090,10 +2257,10 @@ fn launch_inner(
         argv.push(game_dir.to_string_lossy().into());
     }
 
-    // fallback vanilla: versões antigas sem arguments.game
-    if args.is_none() {
-        if let Some(legacy) = v.get("minecraftArguments").and_then(|s| s.as_str()) {
-            for t in legacy.split_whitespace() {
+    // fallback vanilla/legado: versões antigas sem arguments.game
+    if !has_modern_game_args {
+        if let Some(legacy_args) = v.get("minecraftArguments").and_then(|s| s.as_str()) {
+            for t in legacy_args.split_whitespace() {
                 argv.push(interpolate(t, &map));
             }
         }
@@ -2259,4 +2426,64 @@ pub fn open_folder(kind: &str) -> Result<(), String> {
         .spawn()
         .map(|_| ())
         .map_err(|e| format!("abrir {}: {e}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fabric_meta_routes_legacy_and_modern_versions() {
+        assert_eq!(fabric_meta_base("1.7.10"), "https://meta.legacyfabric.net");
+        assert_eq!(fabric_meta_base("1.8.9"), "https://meta.legacyfabric.net");
+        assert_eq!(fabric_meta_base("1.20.1"), "https://meta.fabricmc.net");
+        assert_eq!(fabric_meta_base("1.21.4"), "https://meta.fabricmc.net");
+        assert_eq!(fabric_meta_base("26.2"), "https://meta.fabricmc.net");
+    }
+
+    #[test]
+    fn maven_rel_handles_classifiers() {
+        assert_eq!(
+            maven_rel("net.fabricmc:fabric-loader:0.20.1").as_deref(),
+            Some("net/fabricmc/fabric-loader/0.20.1/fabric-loader-0.20.1.jar")
+        );
+        assert_eq!(
+            maven_rel_with_classifier(
+                "org.lwjgl.lwjgl:lwjgl-platform:2.9.4+legacyfabric.17",
+                Some("natives-windows")
+            )
+            .as_deref(),
+            Some("org/lwjgl/lwjgl/lwjgl-platform/2.9.4+legacyfabric.17/lwjgl-platform-2.9.4+legacyfabric.17-natives-windows.jar")
+        );
+    }
+
+    #[test]
+    fn merge_libraries_lets_legacy_fabric_override_vanilla_lwjgl() {
+        let parent = json!({
+            "libraries": [
+                { "name": "org.lwjgl.lwjgl:lwjgl:2.9.1" },
+                { "name": "org.lwjgl.lwjgl:lwjgl-platform:2.9.1", "natives": { "windows": "natives-windows" } },
+                { "name": "com.google.guava:guava:15.0" }
+            ]
+        });
+        let child = json!({
+            "libraries": [
+                { "name": "org.lwjgl.lwjgl:lwjgl:2.9.4+legacyfabric.17" },
+                { "name": "org.lwjgl.lwjgl:lwjgl-platform:2.9.4+legacyfabric.17", "natives": { "windows": "natives-windows" } }
+            ]
+        });
+        let merged = merge_libraries(&parent, &child);
+        let names: Vec<&str> = merged
+            .iter()
+            .filter_map(|l| l.get("name").and_then(|s| s.as_str()))
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                "com.google.guava:guava:15.0",
+                "org.lwjgl.lwjgl:lwjgl:2.9.4+legacyfabric.17",
+                "org.lwjgl.lwjgl:lwjgl-platform:2.9.4+legacyfabric.17",
+            ]
+        );
+    }
 }

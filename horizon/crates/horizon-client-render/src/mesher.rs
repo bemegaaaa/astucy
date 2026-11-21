@@ -747,6 +747,9 @@ pub struct MeshTables {
     /// reads 8,000 states, and a few bytes each stay in cache where `Info`
     /// does not.
     solid: Vec<bool>,
+    /// By state, whether any baked alternative emits faces without `cullface`
+    /// (`cull: None`), so enclosed blocks (e.g. X-Ray ores) are still meshed.
+    uncullable: Vec<bool>,
     /// By state, bit `d` set where its occlusion face toward direction `d` is the
     /// full block (`Info::face` 1): a face looking at it never shows.
     full_faces: Vec<u8>,
@@ -969,7 +972,24 @@ impl MeshTables {
             });
         }
         Ok(Self {
-            solid: info.iter().map(|i| i.solid).collect(),
+            solid: info
+                .iter()
+                .enumerate()
+                .map(|(id, i)| {
+                    i.solid
+                        && render
+                            .model_catalog
+                            .state_occludes(BlockStateId(id as u32))
+                            .unwrap_or(true)
+                })
+                .collect(),
+            uncullable: (0..info.len())
+                .map(|id| {
+                    render
+                        .model_catalog
+                        .has_uncullable_faces(BlockStateId(id as u32))
+                })
+                .collect(),
             full_faces: info
                 .iter()
                 .map(|i| (0..6).fold(0, |bits, d| bits | u8::from(i.face[d] == 1) << d))
@@ -1931,7 +1951,9 @@ impl Mesher<'_> {
                         out.lights
                             .push(([center.x * 16 + x, base_y + y, center.z * 16 + z], id));
                     }
-                    if hidden[(y * 16 + z) as usize] >> x & 1 != 0 {
+                    if hidden[(y * 16 + z) as usize] >> x & 1 != 0
+                        && !self.tables.uncullable[id as usize]
+                    {
                         continue;
                     }
                     if state.fluid.kind() != FluidKind::Empty {

@@ -69,6 +69,19 @@ pub fn startup_root(
 }
 fn info(p: &Pack) -> PackInfo {
     let built_in = !p.id.starts_with("file/");
+    let icon = p
+        .icon_png()
+        .as_deref()
+        .and_then(pack_screen::load_icon)
+        .or_else(|| {
+            p.id.contains("astucy")
+                .then(|| {
+                    pack_screen::load_icon(include_bytes!(
+                        "../../../../packaging/icons/minecraft-128.png"
+                    ))
+                })
+                .flatten()
+        });
     PackInfo {
         id: p.id.clone(),
         title: p.title.clone(),
@@ -79,8 +92,8 @@ fn info(p: &Pack) -> PackInfo {
         } else {
             PackSource::Default
         },
-        compat: p.compatibility,
-        icon: p.icon_png().as_deref().and_then(pack_screen::load_icon),
+        compat: Compat::Compatible,
+        icon,
         required: false,
         position: Position::Top,
         fixed: false,
@@ -103,7 +116,7 @@ fn downloaded_info(p: &Pack) -> PackInfo {
         } else {
             PackSource::Server
         },
-        compat: p.compatibility,
+        compat: Compat::Compatible,
         icon: p.icon_png().as_deref().and_then(pack_screen::load_icon),
         required: true,
         position: Position::Top,

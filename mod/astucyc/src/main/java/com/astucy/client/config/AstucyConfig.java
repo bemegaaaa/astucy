@@ -145,7 +145,6 @@ public final class AstucyConfig {
             flush();
         }
         if (v < 7) {
-            // v7: migra módulos antigos para fonte anti-aliased ("font": true) e ativa Motion Blur de alta velocidade
             for (var entry : data.entrySet()) {
                 Map<String, Object> val = entry.getValue();
                 if (val == null) {
@@ -166,6 +165,108 @@ public final class AstucyConfig {
             data.put("_versao", stamp);
             flush();
         }
+        if (v < 8) {
+            // v8: paridade 1:1 com o preset padrão do Rust (sprint, fps, ping, cps) + crosshair 17x17 + armor %
+            java.util.Set<String> keep = java.util.Set.of("sprint", "fps", "ping", "cps");
+            for (Module m : Modules.all()) {
+                Map<String, Object> d = data.computeIfAbsent(m.id, k -> styleMap(m));
+                d.put("enabled", keep.contains(m.id));
+                if ("armor".equals(m.id)) {
+                    d.put("prefix", Boolean.TRUE);
+                }
+            }
+            if (!prefs().containsKey("crosshair_rows")) {
+                resetCrosshair();
+            }
+            Map<String, Object> stamp = new HashMap<>();
+            stamp.put("v", 8);
+            data.put("_versao", stamp);
+            flush();
+        }
+    }
+
+    public static long[] defaultCrosshairRows() {
+        long[] rows = new long[17];
+        for (int i = 2; i <= 14; i++) {
+            rows[i] |= 1L << 8;
+            rows[8] |= 1L << i;
+        }
+        return rows;
+    }
+
+    public static long[] crosshairRows() {
+        Object raw = prefs().get("crosshair_rows");
+        long[] out = new long[17];
+        if (raw instanceof java.util.List<?> list && list.size() == 17) {
+            for (int i = 0; i < 17; i++) {
+                if (list.get(i) instanceof Number n) {
+                    out[i] = n.longValue();
+                }
+            }
+            return out;
+        }
+        out = defaultCrosshairRows();
+        saveCrosshairRows(out);
+        return out;
+    }
+
+    public static void saveCrosshairRows(long[] rows) {
+        java.util.List<Long> list = new java.util.ArrayList<>(17);
+        for (int i = 0; i < 17; i++) {
+            list.add(i < rows.length ? rows[i] : 0L);
+        }
+        prefs().put("crosshair_rows", list);
+        flush();
+    }
+
+    public static boolean getCrosshairPixel(int x, int y) {
+        if (x < 0 || x >= 17 || y < 0 || y >= 17) return false;
+        return ((crosshairRows()[y] >> x) & 1L) != 0L;
+    }
+
+    public static void setCrosshairPixel(int x, int y, boolean on) {
+        if (x < 0 || x >= 17 || y < 0 || y >= 17) return;
+        long[] rows = crosshairRows();
+        if (on) rows[y] |= 1L << x;
+        else rows[y] &= ~(1L << x);
+        saveCrosshairRows(rows);
+    }
+
+    public static void applyCrosshairPreset(String preset) {
+        long[] g = new long[17];
+        switch (preset) {
+            case "Cross" -> g = defaultCrosshairRows();
+            case "Dot" -> g[8] = 1L << 8;
+            case "Gap" -> {
+                for (int i : new int[]{2, 3, 4, 5, 8, 11, 12, 13, 14}) {
+                    g[i] |= 1L << 8;
+                    g[8] |= 1L << i;
+                }
+            }
+            case "X" -> {
+                for (int d = 2; d <= 5; d++) {
+                    g[8 - d] |= (1L << (8 - d)) | (1L << (8 + d));
+                    g[8 + d] |= (1L << (8 - d)) | (1L << (8 + d));
+                }
+                g[8] |= 1L << 8;
+            }
+            default -> { } // Clear
+        }
+        saveCrosshairRows(g);
+    }
+
+    public static void resetCrosshair() {
+        saveCrosshairRows(defaultCrosshairRows());
+        prefs().put("crosshair_invert", Boolean.TRUE);
+        flush();
+    }
+
+    public static boolean isCrosshairInvert() {
+        return prefBool("crosshair_invert", true);
+    }
+
+    public static void setCrosshairInvert(boolean v) {
+        setPref("crosshair_invert", v);
     }
 
     @SuppressWarnings("unchecked")

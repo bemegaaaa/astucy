@@ -43,6 +43,16 @@ impl Choice<Variant> {
     }
 }
 impl<T> Choice<T> {
+    fn for_each_alternative<'a>(&'a self, mut f: impl FnMut(&'a T)) {
+        match self {
+            Self::Single(value) => f(value),
+            Self::Weighted { variants, .. } => {
+                for value in variants {
+                    f(value);
+                }
+            }
+        }
+    }
     fn map<U>(&self, f: &mut impl FnMut(&T) -> U) -> Choice<U> {
         match self {
             Self::Single(value) => Choice::Single(f(value)),
@@ -169,5 +179,26 @@ impl<T> CompiledChoices<T> {
             }
         }
         Ok(())
+    }
+    /// Visits every alternative model for `selected` without consuming random draws.
+    pub fn for_each_alternative<'a>(
+        &'a self,
+        selected: &SelectedModels,
+        mut f: impl FnMut(&'a T),
+    ) {
+        match selected {
+            SelectedModels::Variant(index) => {
+                if let Some(choice) = self.variants.get(*index) {
+                    choice.for_each_alternative(&mut f);
+                }
+            }
+            SelectedModels::Multipart(indices) => {
+                for &index in indices {
+                    if let Some(choice) = self.multipart.get(index) {
+                        choice.for_each_alternative(&mut f);
+                    }
+                }
+            }
+        }
     }
 }

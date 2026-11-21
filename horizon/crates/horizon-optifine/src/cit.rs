@@ -554,10 +554,11 @@ impl Rule {
         let model_at = |v: &str| asset(path, v, "json", "models", &exists);
         // A named asset that is not there drops the rule, as in CIT Resewn: half a bow's textures
         // would draw a vanilla frame among custom ones.
-        let mut texture = optional(props, &["texture"], tex)?;
+        let mut texture = optional(props, &["texture", "tile", "source"], tex)?;
         let mut model = optional(props, &["model"], model_at)?;
         let textures = props
             .with_prefix("texture.")
+            .chain(props.with_prefix("tile."))
             .map(|(name, v)| Some((name.to_owned(), tex(v)?)))
             .collect::<Option<Vec<_>>>()?;
         let models = props

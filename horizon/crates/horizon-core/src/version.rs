@@ -19,3 +19,27 @@ pub const JAVA_VERSION: u32 = 25;
 pub const STABLE: bool = true;
 /// `WorldVersion.buildTime()` as `Date.toString()` prints it in UTC (`/version`).
 pub const BUILD_TIME: &str = "Tue Sep 15 11:20:48 UTC 2026";
+
+/// Astucy display target version (`"1.8.9"` when launched in 1.8.9 mode, otherwise `VANILLA_VERSION`).
+pub fn astucy_mc_version() -> &'static str {
+    static VER: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+    *VER.get_or_init(|| {
+        let env_189 = std::env::var("ASTUCY_MC_VERSION")
+            .ok()
+            .is_some_and(|v| v.trim() == "1.8.9");
+        let arg_189 = std::env::args()
+            .skip_while(|a| a != "--astucy-mc-version")
+            .nth(1)
+            .is_some_and(|v| v.trim() == "1.8.9");
+        if env_189 || arg_189 {
+            "1.8.9"
+        } else {
+            VANILLA_VERSION
+        }
+    })
+}
+
+/// Whether this Astucy Rust session targets Minecraft 1.8.9 gameplay & UI.
+pub fn is_189_mode() -> bool {
+    astucy_mc_version() == "1.8.9"
+}
