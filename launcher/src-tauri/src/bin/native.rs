@@ -189,6 +189,7 @@ struct App {
     icons: std::collections::HashMap<String, egui::TextureHandle>,
     icon_pending: std::collections::HashSet<String>,
     nick_ready: bool,
+    offline_mode: bool,
     account_open: bool,
     boot_at: f64,
 }
@@ -243,6 +244,10 @@ impl App {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
+            offline_mode: saved
+                .get("settings.offline")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
             catalog: Vec::new(),
             catalog_busy: false,
             catalog_loaded: false,
@@ -354,6 +359,7 @@ impl App {
             "settings.theme": self.theme,
             "settings.res_w": self.res_w,
             "settings.res_h": self.res_h,
+            "settings.offline": self.offline_mode,
         });
         let _ = std::fs::create_dir_all(self.settings_path.parent().unwrap_or(&self.settings_path));
         let _ = std::fs::write(
@@ -521,7 +527,11 @@ impl App {
     }
 
     fn default_account(&self) -> Option<&auth::AccountView> {
-        self.accounts.get(self.account_idx)
+        if self.offline_mode {
+            None
+        } else {
+            self.accounts.get(self.account_idx)
+        }
     }
 
     /* ---------- ações ---------- */
@@ -559,6 +569,19 @@ impl App {
         std::thread::spawn(move || {
             let r = engine::launch(None, &nick, &version, uuid.as_deref());
             let _ = tx.send(Msg::Launched(r));
+        });
+    }
+
+    fn begin_browser_login(&mut self) {
+        if self.login.busy {
+            return;
+        }
+        self.login.busy = true;
+        self.login.status = "Abrindo janela da Microsoft…".into();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let r = run_browser_login_child();
+            let _ = tx.send(Msg::LoginDone(r));
         });
     }
 
@@ -839,6 +862,8 @@ impl App {
                         Ok(()) => {
                             self.login.open = false;
                             self.login.status.clear();
+                            self.offline_mode = false;
+                            self.save();
                             let _ = self.tx.send(Msg::Accounts(auth::auth_accounts()));
                             self.toast("Conta conectada.", false);
                         }
@@ -1336,6 +1361,8 @@ impl App {
                                         let _ = auth::auth_set_default(a.uuid.clone());
                                         let _ =
                                             self.tx.send(Msg::Accounts(auth::auth_accounts()));
+                                        self.offline_mode = false;
+                                        self.save();
                                         self.account_open = false;
                                     }
                                 }
@@ -1393,6 +1420,7 @@ impl App {
                                     if valid_nick(&nv) {
                                         self.nick = nv.clone();
                                         self.nick_ready = true;
+                                        self.offline_mode = true;
                                         self.save();
                                         self.toast(format!("Modo offline como {nv}"), false);
                                         self.account_open = false;
@@ -1405,7 +1433,7 @@ impl App {
                                     self.login.open = true;
                                     self.account_open = false;
                                     if self.default_account().is_none() {
-                                        self.begin_login();
+                                        self.begin_browser_login();
                                     }
                                 }
                             });
@@ -2398,9 +2426,9 @@ impl App {
                     text(ui, &a.name, 18.0, p.text, true);
                     ui.add_space(14.0);
                     ui.horizontal(|ui| {
-                        if chip_button(ui, "Entrar com outra", p).clicked() {
+                        if !self.login.busy && chip_button(ui, "Entrar com outra", p).clicked() {
                             self.login.code.clear();
-                            self.begin_login();
+                            self.begin_browser_login();
                         }
                         if chip_button(ui, "Sair desta conta", p).clicked() {
                             let _ = auth::auth_remove(a.uuid.clone());
@@ -2408,6 +2436,10 @@ impl App {
                             self.close_login(ui.ctx());
                         }
                     });
+                    if self.login.busy || !self.login.status.is_empty() {
+                        ui.add_space(8.0);
+                        text(ui, &self.login.status, 10.5, p.faint, false);
+                    }
                     ui.add_space(10.0);
                     text(
                         ui,
@@ -2420,14 +2452,23 @@ impl App {
                 }
 
                 if self.login.code.is_empty() {
-                    text(ui, "Entrar sem senha, pelo site da Microsoft.", 11.5, p.dim, false);
+                    text(ui, "Entrar sem senha, pela janela da Microsoft.", 11.5, p.dim, false);
                     ui.add_space(12.0);
                     if !self.login.busy {
-                        if accent_button(ui, "Gerar código", p).clicked() {
-                            self.begin_login();
-                        }
+                        ui.horizontal(|ui| {
+                            if accent_button(ui, "Entrar com Microsoft", p).clicked() {
+                                self.begin_browser_login();
+                            }
+                            if auth::client_id().is_some() && chip_button(ui, "Gerar código", p).clicked() {
+                                self.begin_login();
+                            }
+                        });
                     } else {
-                        text(ui, "Gerando código…", 11.5, p.faint, false);
+                        text(ui, "Aguardando login na janela da Microsoft…", 11.5, p.faint, false);
+                    }
+                    if !self.login.status.is_empty() {
+                        ui.add_space(10.0);
+                        text(ui, &self.login.status, 10.5, p.faint, false);
                     }
                     return;
                 }
@@ -4181,7 +4222,87 @@ impl App {
  * main
  * ================================================================== */
 
+fn run_browser_login_child() -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| format!("exe: {e}"))?;
+    let out_path = std::env::temp_dir().join(format!("astucy-ms-login-{}.txt", std::process::id()));
+    let _ = std::fs::remove_file(&out_path);
+    let status = std::process::Command::new(exe)
+        .arg("--ms-login")
+        .arg(&out_path)
+        .status()
+        .map_err(|e| format!("abrir janela Microsoft: {e}"))?;
+    let raw = std::fs::read_to_string(&out_path).ok();
+    let _ = std::fs::remove_file(&out_path);
+    let Some(raw) = raw else {
+        return Err(if status.success() {
+            "Login cancelado.".into()
+        } else {
+            "Não foi possível abrir a janela da Microsoft.".into()
+        });
+    };
+    if let Some(code) = raw.strip_prefix("OK:") {
+        auth::exchange_legacy_code(code.trim()).map(|_| ())
+    } else if let Some(err) = raw.strip_prefix("ERR:") {
+        Err(err.trim().to_string())
+    } else {
+        Err("Login cancelado.".into())
+    }
+}
+
+fn run_ms_login_webview(out_path: PathBuf) {
+    let url = auth::legacy_login_url();
+    let Ok(parsed) = tauri::Url::parse(&url) else {
+        let _ = std::fs::write(&out_path, "ERR:URL de login inválida.");
+        return;
+    };
+    let mut ctx = tauri::generate_context!();
+    ctx.config_mut().app.windows.clear();
+    let out_nav = out_path.clone();
+    let _ = tauri::Builder::default()
+        .setup(move |app| {
+            let handle = app.handle().clone();
+            let win = tauri::WebviewWindowBuilder::new(
+                app,
+                "login",
+                tauri::WebviewUrl::External(parsed),
+            )
+            .title("Entrar com Microsoft")
+            .inner_size(470.0, 720.0)
+            .min_inner_size(360.0, 520.0)
+            .center()
+            .on_navigation(move |u| {
+                if let Some(res) = auth::parse_legacy_redirect(u.as_str()) {
+                    let line = match res {
+                        Ok(code) => format!("OK:{code}"),
+                        Err(err) => format!("ERR:{err}"),
+                    };
+                    let _ = std::fs::write(&out_nav, line);
+                    handle.exit(0);
+                    return false;
+                }
+                true
+            })
+            .build()?;
+            let close_handle = app.handle().clone();
+            win.on_window_event(move |ev| {
+                if matches!(ev, tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed) {
+                    close_handle.exit(0);
+                }
+            });
+            Ok(())
+        })
+        .run(ctx);
+}
+
 fn main() -> eframe::Result<()> {
+    let mut args = std::env::args_os();
+    let _ = args.next();
+    if args.next().as_deref() == Some(std::ffi::OsStr::new("--ms-login"))
+        && let Some(out_path) = args.next()
+    {
+        run_ms_login_webview(PathBuf::from(out_path));
+        return Ok(());
+    }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1216.0, 718.0])

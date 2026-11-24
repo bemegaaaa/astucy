@@ -877,6 +877,80 @@ fn url_param(url: &str, name: &str) -> Option<String> {
     None
 }
 
+/// Monta a URL pública de login Microsoft usado pelo Minecraft (`MSA_CLIENT`).
+pub fn legacy_login_url() -> String {
+    format!(
+        "{}?client_id={}&scope={}&response_type=code&redirect_uri={}&prompt=select_account",
+        LEGACY_AUTH,
+        MSA_CLIENT,
+        url_encode(LEGACY_SCOPE),
+        url_encode(LEGACY_REDIRECT)
+    )
+}
+
+/// Troca o `code` retornado por `LEGACY_REDIRECT` por uma sessão Minecraft e salva a conta.
+pub fn exchange_legacy_code(code: &str) -> Result<AccountView, String> {
+    let v = post_form(
+        LEGACY_TOKEN,
+        &[
+            ("client_id", MSA_CLIENT),
+            ("grant_type", "authorization_code"),
+            ("code", code),
+            ("redirect_uri", LEGACY_REDIRECT),
+            ("scope", LEGACY_SCOPE),
+        ],
+    )?;
+    if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
+        return Err(format!("Microsoft recusou o login: {err}"));
+    }
+    let access = v
+        .get("access_token")
+        .and_then(|x| x.as_str())
+        .ok_or("Microsoft não devolveu access_token")?
+        .to_string();
+    let refresh = v
+        .get("refresh_token")
+        .and_then(|x| x.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let ticket = if access.starts_with("EwA") {
+        access
+    } else {
+        format!("d={access}")
+    };
+    let session = ms_to_mc_ticket(&ticket)?;
+    upsert_src(&session, &refresh, "browser")
+}
+
+/// Se `url` for o retorno de `LEGACY_REDIRECT`, extrai `Ok(code)` ou `Err(mensagem)`.
+pub fn parse_legacy_redirect(url: &str) -> Option<Result<String, String>> {
+    if !url.starts_with(LEGACY_REDIRECT) {
+        return None;
+    }
+    let code = url_param(url, "code");
+    let err = url_param(url, "error_description").or_else(|| url_param(url, "error"));
+    Some(match code {
+        Some(c) if !c.is_empty() => Ok(c),
+        _ => Err(err.unwrap_or_else(|| "Login cancelado.".to_string())),
+    })
+}
+
+/// Conclui o login Microsoft a partir da URL final (`?code=...`) ou do código puro colado pelo usuário.
+pub fn auth_legacy_finish(url_or_code: &str) -> Result<AccountView, String> {
+    let trimmed = url_or_code.trim();
+    if trimmed.is_empty() {
+        return Err("Cole a URL final ou o código de autorização.".into());
+    }
+    if let Some(err) = url_param(trimmed, "error_description").or_else(|| url_param(trimmed, "error")) {
+        return Err(format!("Microsoft recusou o login: {err}"));
+    }
+    let code = url_param(trimmed, "code").unwrap_or_else(|| trimmed.to_string());
+    if code.is_empty() {
+        return Err("Nenhum código encontrado na URL colada.".into());
+    }
+    exchange_legacy_code(&code)
+}
+
 /// Abre a janela da Microsoft. Quando a URL de retorno chega com o `code`,
 /// guarda o código, avisa o frontend e para a navegação.
 #[tauri::command(async)]
@@ -890,13 +964,7 @@ pub async fn auth_browser_open(app: tauri::AppHandle) -> Result<(), String> {
         *g = None;
     }
 
-    let url = format!(
-        "{}?client_id={}&scope={}&response_type=code&redirect_uri={}",
-        LEGACY_AUTH,
-        MSA_CLIENT,
-        url_encode(LEGACY_SCOPE),
-        url_encode(LEGACY_REDIRECT)
-    );
+    let url = legacy_login_url();
     let parsed = tauri::Url::parse(&url).map_err(|e| format!("url de login: {e}"))?;
 
     let handle = app.clone();
@@ -906,14 +974,7 @@ pub async fn auth_browser_open(app: tauri::AppHandle) -> Result<(), String> {
         .min_inner_size(360.0, 520.0)
         .center()
         .on_navigation(move |u| {
-            let s = u.as_str();
-            if s.starts_with(LEGACY_REDIRECT) {
-                let code = url_param(s, "code");
-                let err = url_param(s, "error_description").or_else(|| url_param(s, "error"));
-                let res = match code {
-                    Some(c) if !c.is_empty() => Ok(c),
-                    _ => Err(err.unwrap_or_else(|| "Login cancelado.".to_string())),
-                };
+            if let Some(res) = parse_legacy_redirect(u.as_str()) {
                 let done = res.is_ok();
                 if let Ok(mut g) = BROWSER.lock() {
                     *g = Some(res);
@@ -942,36 +1003,7 @@ pub async fn auth_browser_finish(app: tauri::AppHandle) -> Result<AccountView, S
             .and_then(|mut g| g.take())
             .ok_or("Nenhum login em andamento.")?;
         let code = res?;
-        let v = post_form(
-            LEGACY_TOKEN,
-            &[
-                ("client_id", MSA_CLIENT),
-                ("grant_type", "authorization_code"),
-                ("code", code.as_str()),
-                ("redirect_uri", LEGACY_REDIRECT),
-                ("scope", LEGACY_SCOPE),
-            ],
-        )?;
-        if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
-            return Err(format!("Microsoft recusou o login: {err}"));
-        }
-        let access = v
-            .get("access_token")
-            .and_then(|x| x.as_str())
-            .ok_or("Microsoft não devolveu access_token")?
-            .to_string();
-        let refresh = v
-            .get("refresh_token")
-            .and_then(|x| x.as_str())
-            .unwrap_or_default()
-            .to_string();
-        let ticket = if access.starts_with("EwA") {
-            access
-        } else {
-            format!("d={access}")
-        };
-        let session = ms_to_mc_ticket(&ticket)?;
-        upsert_src(&session, &refresh, "browser")
+        exchange_legacy_code(&code)
     })
     .await
     .map_err(|e| format!("thread: {e}"))?
